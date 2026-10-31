@@ -24,7 +24,7 @@ abstract class Effect(val name: String, val short: String) {
 class FilterFx(private val sr: Int) : Effect("Filtre", "Flt") {
     val cutoff = Param("Cutoff", 30f, 18000f, 1200f, log = true, unit = "Hz")
     val res = Param("Reso", 0f, 1f, 0.3f)
-    val type = Param("Type", 0f, 2f, 0f, stepped = true, labels = listOf("Passe-bas", "Passe-haut", "Passe-bande"))
+    val type = Param("Type", 0f, 2f, 0f, stepped = true, labels = listOf("LP", "HP", "BP"))
     override val params = listOf(cutoff, res, type)
 
     private val ic1 = FloatArray(2)

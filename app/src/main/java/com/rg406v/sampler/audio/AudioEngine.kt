@@ -25,11 +25,37 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
     val sampleRate: Int
     val master = Param("Master", 0f, 1f, 0.8f)
 
+    /** Gamme : chaque pad joue une note différente (pitch ajouté à celui du pad). */
+    val scale = Param(
+        "Gamme", 0f, 4f, 0f, stepped = true,
+        labels = listOf("Aucune", "Chromatique", "Majeur", "Mineur", "Pentatonique"),
+    )
+    private val scales = arrayOf(
+        IntArray(16),
+        IntArray(16) { it },
+        intArrayOf(0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24, 26),
+        intArrayOf(0, 2, 3, 5, 7, 8, 10, 12, 14, 15, 17, 19, 20, 22, 24, 26),
+        intArrayOf(0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 36),
+    )
+
     /** Chaîne d'effets dans l'ordre du signal. Remplacée atomiquement par l'UI. */
     @Volatile
     var chain: Array<Effect> = emptyArray()
 
+    /** Effets individuels de chaque pad (insérés avant le mixage vers la chaîne master). */
+    @Volatile
+    var padChains: Array<Array<Effect>> = Array(pads.size) { emptyArray() }
+
+    fun setPadChain(i: Int, chain: Array<Effect>) {
+        val c = padChains.copyOf()
+        c[i] = chain
+        padChains = c
+    }
+
     private val voices = Array(pads.size) { Voice(pads[it]) }
+    private val padL = FloatArray(BLOCK)
+    private val padR = FloatArray(BLOCK)
+    private val padQuiet = IntArray(pads.size)
     private val mixL = FloatArray(BLOCK)
     private val mixR = FloatArray(BLOCK)
     private val out = FloatArray(BLOCK * 2)
@@ -42,11 +68,13 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
         sampleRate = am?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 48000
     }
 
-    fun noteOn(i: Int) { voices[i].trig = true }
+    fun noteOn(i: Int) {
+        voices[i].keyOffset = scales[scale.value.toInt().coerceIn(0, 4)][i % 16].toFloat()
+        voices[i].trig = true
+    }
 
     fun noteOff(i: Int) {
-        val p = pads[i]
-        if (p.gate || p.loop) voices[i].rel = true
+        if (pads[i].holds()) voices[i].rel = true
     }
 
     fun stopAll() { for (v in voices) v.kill = true }
@@ -107,7 +135,31 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
             while (running) {
                 java.util.Arrays.fill(mixL, 0f)
                 java.util.Arrays.fill(mixR, 0f)
-                for (v in voices) v.render(mixL, mixR, BLOCK, sampleRate)
+                val chains = padChains
+                for (i in voices.indices) {
+                    val v = voices[i]
+                    val pc = chains[i]
+                    var anyFx = false
+                    for (fx in pc) if (fx.enabled) { anyFx = true; break }
+                    if (!anyFx) {
+                        v.render(mixL, mixR, BLOCK, sampleRate)
+                        padQuiet[i] = 0
+                        continue
+                    }
+                    // Pad avec effets : on laisse vivre les queues (delay, reverb) jusqu'au silence.
+                    if (!v.isActive() && padQuiet[i] >= 400) continue
+                    java.util.Arrays.fill(padL, 0f)
+                    java.util.Arrays.fill(padR, 0f)
+                    v.render(padL, padR, BLOCK, sampleRate)
+                    for (fx in pc) if (fx.enabled) fx.process(padL, padR, BLOCK)
+                    var peak = 0f
+                    for (k in 0 until BLOCK) {
+                        peak = max(peak, max(abs(padL[k]), abs(padR[k])))
+                        mixL[k] += padL[k]
+                        mixR[k] += padR[k]
+                    }
+                    padQuiet[i] = if (v.isActive() || peak > 1e-5f) 0 else padQuiet[i] + 1
+                }
 
                 val ch = chain
                 for (fx in ch) if (fx.enabled) fx.process(mixL, mixR, BLOCK)

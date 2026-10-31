@@ -22,6 +22,7 @@ class Param(
     val unit: String = "",
     val decimals: Int = 2,
 ) {
+    val defaultValue: Float = default
     var value by mutableFloatStateOf(default)
 
     /** Position normalisée 0..1 (échelle log si demandé). */

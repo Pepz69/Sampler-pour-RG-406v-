@@ -1,5 +1,6 @@
 package com.rg406v.sampler
 
+import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -8,6 +9,7 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +35,11 @@ class MainActivity : ComponentActivity() {
             }
             state.loadFromUri(pendingPad, uri)
         }
+    }
+
+    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) state.startRecording()
+        else Toast.makeText(this, "Autorise le micro pour enregistrer", Toast.LENGTH_SHORT).show()
     }
 
     // Correspondance bouton → pad (0..7). Avec L1 maintenu : +8.
@@ -76,6 +83,8 @@ class MainActivity : ComponentActivity() {
             picker.launch(arrayOf("audio/*", "application/octet-stream"))
         }
 
+        state.requestMic = { micPermission.launch(Manifest.permission.RECORD_AUDIO) }
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).let {
@@ -95,6 +104,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         handler.removeCallbacks(tick)
         held.clear()
+        state.stopRecording()
         state.releaseAll()
         state.engine.stop()
         super.onPause()
@@ -124,8 +134,8 @@ class MainActivity : ComponentActivity() {
         when (code) {
             KeyEvent.KEYCODE_BUTTON_L1 -> state.bankHeld = down
             KeyEvent.KEYCODE_BUTTON_R1 -> if (down) state.panic()
-            KeyEvent.KEYCODE_BUTTON_L2 -> if (down) state.selectFx(-1)
-            KeyEvent.KEYCODE_BUTTON_R2 -> if (down) state.selectFx(1)
+            KeyEvent.KEYCODE_BUTTON_L2 -> if (down && state.tab != 1) state.selectFx(-1)
+            KeyEvent.KEYCODE_BUTTON_R2 -> if (down) { if (state.tab == 1) state.toggleRecord() else state.selectFx(1) }
             KeyEvent.KEYCODE_BUTTON_THUMBL -> if (down) state.moveFx(-1)
             KeyEvent.KEYCODE_BUTTON_THUMBR -> if (down) state.moveFx(1)
             KeyEvent.KEYCODE_BUTTON_START -> if (down) state.startPressed()
