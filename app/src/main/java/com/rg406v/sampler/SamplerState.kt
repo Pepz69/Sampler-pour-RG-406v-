@@ -536,6 +536,8 @@ class SamplerState(private val ctx: Context) {
 
     val kitList = mutableStateListOf<String>()
     val seqList = mutableStateListOf<String>()
+    val projList = mutableStateListOf<String>()
+    var currentProject by mutableStateOf("")
     var currentKit by mutableStateOf("classic")
     var libReady by mutableStateOf(false)
     var libKit by mutableIntStateOf(0)
@@ -545,7 +547,9 @@ class SamplerState(private val ctx: Context) {
     fun refreshLists() {
         val k = storage.listKits()
         val s = storage.listSeq()
+        val pr = storage.listProjects()
         ui.post {
+            projList.clear(); projList.addAll(pr)
             kitList.clear(); kitList.addAll(k)
             seqList.clear(); seqList.addAll(s)
         }
@@ -946,7 +950,15 @@ class SamplerState(private val ctx: Context) {
                 for (i in 0 until 16) autoCache[i] = pads[i].sample
             }
             val txt = storage.readState() ?: return
-            val o = JSONObject(txt)
+            applyState(JSONObject(txt))
+        } catch (e: Exception) {
+            // état illisible : on garde les valeurs par défaut
+        }
+    }
+
+    /** Applique un état complet (sauvegarde auto ou projet). */
+    private fun applyState(o: JSONObject) {
+        try {
             ui.post {
                 engine.master.value = o.optDouble("master", 0.8).toFloat()
                 engine.scale.value = o.optDouble("scale", 0.0).toFloat()
@@ -979,6 +991,49 @@ class SamplerState(private val ctx: Context) {
             Thread { autosave() }.start()
             ui.postDelayed(this, 15000)
         }
+    }
+
+    // ------------------------------------------------------------ projets (tout en un)
+    fun saveProjectAs(name: String) {
+        if (!ready) return
+        Thread {
+            try {
+                synchronized(saveLock) {
+                    storage.saveKit(name, pads, null, storage.projectsRoot)
+                    storage.writeProjectState(name, buildStateJson())
+                }
+                ui.post { currentProject = name }
+                refreshLists()
+                toast("Projet « $name » enregistré")
+            } catch (e: Exception) {
+                toast("Échec de l'enregistrement du projet")
+            }
+        }.start()
+    }
+
+    fun loadProjectNamed(name: String) {
+        if (autoRec) toggleAutoRec()
+        seq.stop()
+        releaseAll()
+        engine.stopAll()
+        Thread {
+            try {
+                val txt = storage.readProjectState(name)
+                if (txt == null || !storage.loadKit(name, pads, storage.projectsRoot)) {
+                    toast("Projet introuvable")
+                    return@Thread
+                }
+                applyState(JSONObject(txt))
+                ui.post { currentProject = name }
+                toast("Projet « $name » chargé")
+            } catch (e: Exception) {
+                toast("Projet illisible")
+            }
+        }.start()
+    }
+
+    fun deleteProject(name: String) {
+        Thread { storage.deleteProject(name); refreshLists() }.start()
     }
 
     // ------------------------------------------------------------ automation : enregistrement de mouvements

@@ -14,6 +14,7 @@ import java.io.File
 class Storage(private val ctx: Context) {
     private val kitsDir = File(ctx.filesDir, "kits")
     private val seqDir = File(ctx.filesDir, "sequences")
+    val projectsRoot = File(ctx.filesDir, "projects")
 
     private fun safe(name: String): String {
         val s = name.trim().replace(Regex("[^A-Za-z0-9 _-]"), "_")
@@ -27,8 +28,8 @@ class Storage(private val ctx: Context) {
     fun hasKit(name: String) = File(File(kitsDir, safe(name)), "kit.json").exists()
 
     /** Enregistre les 16 pads. `cache` évite de réécrire les samples inchangés (sauvegarde auto rapide). */
-    fun saveKit(name: String, pads: List<PadParams>, cache: Array<Sample?>? = null) {
-        val dir = File(kitsDir, safe(name))
+    fun saveKit(name: String, pads: List<PadParams>, cache: Array<Sample?>? = null, root: File = kitsDir) {
+        val dir = File(root, safe(name))
         dir.mkdirs()
         val arr = JSONArray()
         for (i in pads.indices) {
@@ -53,8 +54,8 @@ class Storage(private val ctx: Context) {
         File(dir, "kit.json").writeText(arr.toString())
     }
 
-    fun loadKit(name: String, pads: List<PadParams>): Boolean {
-        val dir = File(kitsDir, safe(name))
+    fun loadKit(name: String, pads: List<PadParams>, root: File = kitsDir): Boolean {
+        val dir = File(root, safe(name))
         val jf = File(dir, "kit.json")
         if (!jf.exists()) return false
         return try {
@@ -102,6 +103,27 @@ class Storage(private val ctx: Context) {
 
     fun deleteSeq(name: String) {
         File(seqDir, safe(name) + ".json").delete()
+    }
+
+    // ---- projets : kit + état complet (effets, automations, séquences, réglages)
+    fun listProjects(): List<String> =
+        (projectsRoot.listFiles()?.filter { it.isDirectory }?.map { it.name } ?: emptyList()).sorted()
+
+    fun hasProject(name: String) = File(File(projectsRoot, safe(name)), "project.json").exists()
+
+    fun writeProjectState(name: String, json: String) {
+        val dir = File(projectsRoot, safe(name))
+        dir.mkdirs()
+        File(dir, "project.json").writeText(json)
+    }
+
+    fun readProjectState(name: String): String? {
+        val f = File(File(projectsRoot, safe(name)), "project.json")
+        return if (f.exists()) f.readText() else null
+    }
+
+    fun deleteProject(name: String) {
+        File(projectsRoot, safe(name)).deleteRecursively()
     }
 
     fun writeState(json: String) {

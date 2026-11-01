@@ -83,3 +83,6 @@ Chaque effet (master et pads) a une section « automation » sous ses boutons : 
 
 ## Automation par mouvements
 Section « automation : mouvements » de chaque effet : « rec on », bouge un bouton d'effet pendant que la boucle tourne (1, 2, 4 ou 8 mesures, redémarre avec le séquenceur), « rec off » pour valider. La courbe est rejouée en boucle, sauvegardée avec l'état, effaçable par réglage.
+
+## Projets
+Onglet « kits » > « projets » : enregistrer / charger / supprimer un projet complet (sons, pads, effets, automations, patterns, tempo, réglages audio).

@@ -97,6 +97,7 @@ private fun SavedRow(
 internal fun KitsPanel(state: SamplerState) {
     var kitName by remember { mutableStateOf("mon kit") }
     var seqName by remember { mutableStateOf("ma séquence") }
+    var projName by remember { mutableStateOf("mon projet") }
     var confirm by remember { mutableStateOf("") }
     val pad = state.pads[state.selectedPad]
 
@@ -108,6 +109,7 @@ internal fun KitsPanel(state: SamplerState) {
             Pill("kits", state.kitsView == 0, AccSampler) { state.kitsView = 0 }
             Pill("sons → pads", state.kitsView == 1, AccGrain) { state.kitsView = 1 }
             Pill("séquences", state.kitsView == 2, AccFx) { state.kitsView = 2 }
+            Pill("projets", state.kitsView == 3, AccFm) { state.kitsView = 3 }
         }
 
         when (state.kitsView) {
@@ -207,6 +209,34 @@ internal fun KitsPanel(state: SamplerState) {
                     }
                 }
                 Text("l'échange déplace le son et les réglages (mode, enveloppe, etc.).", fontSize = 10.sp, color = Dim)
+            }
+
+            3 -> {
+                Text("projet actuel : " + state.currentProject.ifBlank { "(aucun)" }, fontSize = 11.sp, color = TextHi)
+                SectionTitle("enregistrer le projet")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    NameField(projName, { projName = it }, Modifier.weight(1f))
+                    Pill("enregistrer", false, AccFm) { state.saveProjectAs(projName) }
+                }
+                Text(
+                    "un projet garde tout : les 16 sons et réglages des pads, les effets du master et des pads, " +
+                        "les automations (LFO et mouvements), les 8 patterns, le tempo et les réglages audio. " +
+                        "charger un projet remplace tout ce qui est en cours.",
+                    fontSize = 10.sp,
+                    color = Dim,
+                )
+                SectionTitle("mes projets")
+                if (state.projList.isEmpty()) Text("aucun projet enregistré", fontSize = 11.sp, color = Dim)
+                state.projList.forEach { n ->
+                    SavedRow(
+                        n, confirm == "p:$n",
+                        onLoad = { state.loadProjectNamed(n); projName = n },
+                        onDelete = {
+                            if (confirm == "p:$n") { state.deleteProject(n); confirm = "" } else confirm = "p:$n"
+                        },
+                        acc = AccFm,
+                    )
+                }
             }
 
             else -> {
