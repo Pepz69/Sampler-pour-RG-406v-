@@ -38,8 +38,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok) state.startRecording()
-        else Toast.makeText(this, "Autorise le micro pour enregistrer", Toast.LENGTH_SHORT).show()
+        state.onMicResult(ok)
     }
 
     // Correspondance bouton → pad (0..7). Avec L1 maintenu : +8.
@@ -97,16 +96,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        state.engine.start()
+        state.resume()
         handler.post(tick)
     }
 
     override fun onPause() {
         handler.removeCallbacks(tick)
         held.clear()
-        state.stopRecording()
-        state.releaseAll()
-        state.engine.stop()
+        state.pause()
         super.onPause()
     }
 
@@ -121,24 +118,41 @@ class MainActivity : ComponentActivity() {
         if (slot != null) {
             if (down) {
                 if (!held.containsKey(code)) {
-                    val pad = slot + if (state.bankHeld) 8 else 0
-                    held[code] = pad
-                    state.padDown(pad)
+                    val idx = slot + if (state.bankHeld) 8 else 0
+                    if (state.punchHeld) {
+                        // R1 maintenu : les boutons déclenchent les effets punch-in (codés en négatif)
+                        if (idx < 12) { held[code] = -(idx + 1); state.punchDown(idx) }
+                    } else {
+                        held[code] = idx
+                        state.padDown(idx)
+                    }
                 }
             } else {
-                held.remove(code)?.let { state.padUp(it) }
+                held.remove(code)?.let { v -> if (v < 0) state.punchUp(-v - 1) else state.padUp(v) }
             }
             return true
         }
 
         when (code) {
             KeyEvent.KEYCODE_BUTTON_L1 -> state.bankHeld = down
-            KeyEvent.KEYCODE_BUTTON_R1 -> if (down) state.panic()
-            KeyEvent.KEYCODE_BUTTON_L2 -> if (down && state.tab != 1) state.selectFx(-1)
-            KeyEvent.KEYCODE_BUTTON_R2 -> if (down) { if (state.tab == 1) state.toggleRecord() else state.selectFx(1) }
+            KeyEvent.KEYCODE_BUTTON_R1 -> state.punchHeld = down
+            KeyEvent.KEYCODE_BUTTON_L2 -> if (down) {
+                when (state.tab) {
+                    TAB_FX, TAB_PADFX -> state.selectFx(-1)
+                    TAB_SEQ, TAB_PIANO -> state.nextPattern(-1)
+                }
+            }
+            KeyEvent.KEYCODE_BUTTON_R2 -> if (down) {
+                when (state.tab) {
+                    TAB_FX, TAB_PADFX -> state.selectFx(1)
+                    TAB_PAD -> state.toggleRecord()
+                    TAB_SEQ, TAB_PIANO -> state.nextPattern(1)
+                }
+            }
             KeyEvent.KEYCODE_BUTTON_THUMBL -> if (down) state.moveFx(-1)
             KeyEvent.KEYCODE_BUTTON_THUMBR -> if (down) state.moveFx(1)
-            KeyEvent.KEYCODE_BUTTON_START -> if (down) state.startPressed()
+            // R1 + Start : arrêt d'urgence de tous les sons ; sinon Start = action de l'onglet
+            KeyEvent.KEYCODE_BUTTON_START -> if (down) { if (state.punchHeld) state.panic() else state.startPressed() }
             KeyEvent.KEYCODE_BUTTON_SELECT -> if (down) state.toggleTab()
         }
         return true

@@ -14,6 +14,25 @@ Tu peux aussi le lancer à la main (workflow_dispatch).
 ## Installer
 Copie l'APK sur la RG406V et installe-le (autorise les sources inconnues).
 
+
+## RGGGSAMPLER4666 : nouveautés
+
+- **Séquenceur façon Elektron** (onglet seq) : 8 patterns, 16 pistes (une par pad), pas de 1 à 64 par piste,
+  p-locks par pas (hauteur, volume, pan, début), probabilité, conditions de trig (1:2, 2:3...), micro-timing,
+  retrig, durée de note, swing, mute, copier/coller de pattern, enregistrement live.
+- **Piano roll** (onglet piano) : joue le pad sélectionné à différentes hauteurs et place les notes sur la grille.
+- **EQ paramétrique** 6 bandes avec courbe, spectre du mix et points à glisser (style FabFilter).
+- **Compresseur** avec « side-kick » déclenché par les notes d'un pad (groove kick/basse du KO II), sur le master et sur chaque pad.
+- **Punch-in** (onglet punch) : loop 1/2 à 1/32 (beat repeat), stutter, reverse, tape stop, octave +/−, unison, filtre.
+- **Banques** : classic, 808, lo-fi, synth. **Kits** et **séquences** enregistrables, assignation des sons aux pads, échange de pads.
+- **Réglages audio** (onglet audio) : taille du bloc, tampon, préréglages, anti-craquement automatique, mode de la piste, diagnostic.
+- **Niveaux** d'entrée et de sortie en dB avec voyants de saturation (touche le bandeau pour remettre à zéro).
+- **Sauvegarde automatique** de tout (kit, effets, séquence, réglages audio).
+
+Manette : Select change d'onglet (fx master > pad > fx pad > seq > piano > kits > punch > audio).
+Start : play/stop (séquenceur) ou action de l'onglet. R1 maintenu + boutons : punch-in. R1 + Start : tout couper.
+L2/R2 : effet précédent/suivant (onglets fx) ou pattern précédent/suivant (seq, piano).
+
 ## Interface
 Style sombre et minimal : modules arrondis, boutons rotatifs à arc dégradé (glisse verticalement pour régler, double-tap = valeur par défaut), accents violet / cyan / rose selon le mode du pad.
 
@@ -41,7 +60,7 @@ Style sombre et minimal : modules arrondis, boutons rotatifs à arc dégradé (g
 | L3 / R3 | déplacer l'effet sélectionné vers la gauche / la droite de la chaîne |
 | Start | onglet Effets : active/coupe l'effet. Onglet Pad : charger un sample |
 | Select | change d'onglet : FX master → Pad → FX du pad sélectionné |
-| R1 | stoppe tous les sons |
+| R1 (maintenu) | les boutons déclenchent les punch-in ; R1 + Start = tout couper |
 | Sticks | onglet Effets : gauche X/Y = 1er/2e réglage, droit X = 3e. Onglet Pad : gauche X = pitch, gauche Y = volume, droit X = début, droit Y = fin |
 
 Tout est aussi jouable au tactile (multi-touch).
@@ -50,3 +69,8 @@ Tout est aussi jouable au tactile (multi-touch).
 - Craquements audio : dans `AudioEngine.kt`, passe `BLOCK` de 256 à 512. Latence plus basse : 128.
 - Si une gâchette ou un stick ne réagit pas, le mapping des axes se règle dans `MainActivity.onGenericMotionEvent`.
 - Les réglages de pads et d'effets ne sont pas sauvegardés (seuls les fichiers de samples le sont).
+
+## Effets créatifs (par pad et master)
+- **Manipulator** (`man`) : transpositeur ±24 demi-tons, fine, spread stéréo, retour, fenêtre, tilt.
+- **Filterverse** (`fvr`) : filtre LP12/LP24/HP/BP/notch/peigne/voyelle/phaser, drive, LFO (5 formes), suiveur d'enveloppe, décalage stéréo.
+Effets originaux inspirés de l'esprit de ces plugins Polyverse, pas leur code.

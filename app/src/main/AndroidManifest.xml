@@ -9,8 +9,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@drawable/ic_launcher"
-        android:label="RG Sampler"
+        android:icon="@mipmap/ic_launcher"
+        android:label="RGGGSAMPLER4666"
         android:theme="@style/Theme.Sampler">
 
         <activity

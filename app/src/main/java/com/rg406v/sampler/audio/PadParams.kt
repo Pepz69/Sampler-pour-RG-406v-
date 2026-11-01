@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Tous les réglages d'un pad. Chaque pad est un sampler, un nuage granulaire ou un synthé FM. */
 class PadParams(val index: Int) {
@@ -75,6 +77,45 @@ class PadParams(val index: Int) {
 
     /** Gate : le son s'arrête (release) quand on relâche le pad. */
     var gate by mutableStateOf(false)
+
+    private val serial: List<Param> by lazy {
+        listOf(
+            mode, volume, pan, pitch, start, end, attack, decay, sustain, release,
+            gPos, gSize, gDens, gSpray, gDetune, gScan, fmRatio, fmIndex, fmFeedback, fmModDecay,
+        )
+    }
+
+    /** Remet tous les réglages du pad à leurs valeurs par défaut (le sample n'est pas touché). */
+    fun reset() {
+        for (p in serial) p.value = p.defaultValue
+        loop = false
+        gate = false
+        fmName = "FM"
+    }
+
+    fun toJson(): JSONObject {
+        val o = JSONObject()
+        o.put("name", sampleName)
+        o.put("fm", fmName)
+        o.put("loop", loop)
+        o.put("gate", gate)
+        val a = JSONArray()
+        for (p in serial) a.put(p.value.toDouble())
+        o.put("p", a)
+        return o
+    }
+
+    fun applyJson(o: JSONObject) {
+        sampleName = o.optString("name", sampleName)
+        fmName = o.optString("fm", fmName)
+        loop = o.optBoolean("loop", loop)
+        gate = o.optBoolean("gate", gate)
+        val a = o.optJSONArray("p") ?: return
+        for (k in serial.indices) {
+            if (k < a.length()) serial[k].value = a.getDouble(k).toFloat().coerceIn(serial[k].min, serial[k].max)
+        }
+        sampleVersion++
+    }
 
     /** Le pad tient la note tant qu'il est enfoncé ? (le granulaire est toujours tenu) */
     fun holds(): Boolean = gate || loop || mode.value.toInt() == 1

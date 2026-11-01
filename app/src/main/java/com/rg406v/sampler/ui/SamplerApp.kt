@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +53,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.rg406v.sampler.SamplerState
+import com.rg406v.sampler.TAB_AUDIO
+import com.rg406v.sampler.TAB_FX
+import com.rg406v.sampler.TAB_KITS
+import com.rg406v.sampler.TAB_PAD
+import com.rg406v.sampler.TAB_PADFX
+import com.rg406v.sampler.TAB_PIANO
+import com.rg406v.sampler.TAB_PUNCH
+import com.rg406v.sampler.TAB_SEQ
 import com.rg406v.sampler.audio.PadParams
 import com.rg406v.sampler.audio.Param
 import kotlin.math.PI
@@ -64,29 +73,29 @@ import kotlin.math.sin
 // ------------------------------------------------------------------ style
 // Fond presque noir, modules arrondis, filets fins, dégradés violet / cyan / rose.
 
-private val Bg = Color(0xFF0B0C10)
-private val Module = Color(0xFF14151C)
-private val ModuleHi = Color(0xFF1B1D27)
-private val Line = Color(0xFF23263A)
-private val TextHi = Color(0xFFE9EAF2)
-private val Dim = Color(0xFF7C8095)
-private val Violet = Color(0xFF8B6CFF)
-private val Cyan = Color(0xFF4FD1FF)
-private val Pink = Color(0xFFFF5C8A)
-private val Amber = Color(0xFFFFB45C)
-private val TrackCol = Color(0xFF262A3B)
+internal val Bg = Color(0xFF0B0C10)
+internal val Module = Color(0xFF14151C)
+internal val ModuleHi = Color(0xFF1B1D27)
+internal val Line = Color(0xFF23263A)
+internal val TextHi = Color(0xFFE9EAF2)
+internal val Dim = Color(0xFF7C8095)
+internal val Violet = Color(0xFF8B6CFF)
+internal val Cyan = Color(0xFF4FD1FF)
+internal val Pink = Color(0xFFFF5C8A)
+internal val Amber = Color(0xFFFFB45C)
+internal val TrackCol = Color(0xFF262A3B)
 
-private class Accent(val a: Color, val b: Color) {
+internal class Accent(val a: Color, val b: Color) {
     fun brush(w: Float = 200f, h: Float = 200f) =
         Brush.linearGradient(listOf(a, b), start = Offset(0f, 0f), end = Offset(w, h))
 }
 
-private val AccFx = Accent(Violet, Pink)
-private val AccSampler = Accent(Cyan, Violet)
-private val AccGrain = Accent(Amber, Pink)
-private val AccFm = Accent(Pink, Violet)
+internal val AccFx = Accent(Violet, Pink)
+internal val AccSampler = Accent(Cyan, Violet)
+internal val AccGrain = Accent(Amber, Pink)
+internal val AccFm = Accent(Pink, Violet)
 
-private fun modeAccent(mode: Int) = when (mode) {
+internal fun modeAccent(mode: Int) = when (mode) {
     1 -> AccGrain
     2 -> AccFm
     else -> AccSampler
@@ -110,7 +119,7 @@ fun SamplerApp(state: SamplerState) {
 // ------------------------------------------------------------------ pads
 
 @Composable
-private fun PadGrid(state: SamplerState, modifier: Modifier) {
+internal fun PadGrid(state: SamplerState, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (row in 0 until 4) {
             Row(
@@ -125,10 +134,10 @@ private fun PadGrid(state: SamplerState, modifier: Modifier) {
     }
 }
 
-private val padHints = listOf("A", "B", "X", "Y", "↑", "→", "↓", "←")
+internal val padHints = listOf("A", "B", "X", "Y", "↑", "→", "↓", "←")
 
 @Composable
-private fun PadButton(state: SamplerState, idx: Int, modifier: Modifier) {
+internal fun PadButton(state: SamplerState, idx: Int, modifier: Modifier) {
     val pad = state.pads[idx]
     val active = state.padActive[idx]
     val selected = state.selectedPad == idx
@@ -223,7 +232,7 @@ private fun PadButton(state: SamplerState, idx: Int, modifier: Modifier) {
 // ------------------------------------------------------------------ panneau de droite
 
 @Composable
-private fun RightPanel(state: SamplerState, modifier: Modifier) {
+internal fun RightPanel(state: SamplerState, modifier: Modifier) {
     val shape = RoundedCornerShape(16.dp)
     val pad = state.pads[state.selectedPad]
     val mode = pad.mode.value.toInt()
@@ -254,15 +263,25 @@ private fun RightPanel(state: SamplerState, modifier: Modifier) {
             }
             Knob(state.engine.master, AccFx, knobSize = 34.dp, showValue = false)
         }
+        MeterStrip(state)
         TabBar(state)
-        if (state.tab == 1) PadPanel(state) else FxPanel(state)
+        when (state.tab) {
+            TAB_PAD -> PadPanel(state)
+            TAB_SEQ -> SeqPanel(state)
+            TAB_PIANO -> PianoPanel(state)
+            TAB_KITS -> KitsPanel(state)
+            TAB_PUNCH -> PunchPanel(state)
+            TAB_AUDIO -> AudioPanel(state)
+            else -> FxPanel(state)
+        }
     }
 }
 
 @Composable
-private fun TabBar(state: SamplerState) {
+internal fun TabBar(state: SamplerState) {
     val outer = RoundedCornerShape(12.dp)
     val n = state.selectedPad + 1
+    val labels = listOf("fx master", "pad $n", "fx pad $n", "seq", "piano", "kits", "punch", "audio")
     Row(
         Modifier
             .fillMaxWidth()
@@ -270,15 +289,15 @@ private fun TabBar(state: SamplerState) {
             .clip(outer)
             .background(Bg, outer)
             .border(1.dp, Line, outer)
+            .horizontalScroll(rememberScrollState())
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        listOf("fx master", "pad $n", "fx pad $n").forEachIndexed { i, t ->
+        labels.forEachIndexed { i, t ->
             val on = state.tab == i
             val inner = RoundedCornerShape(9.dp)
             Box(
                 Modifier
-                    .weight(1f)
                     .fillMaxHeight()
                     .clip(inner)
                     .then(
@@ -287,7 +306,8 @@ private fun TabBar(state: SamplerState) {
                             inner,
                         ) else Modifier
                     )
-                    .clickable { state.tab = i },
+                    .clickable { state.tab = i }
+                    .padding(horizontal = 11.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
@@ -305,7 +325,7 @@ private fun TabBar(state: SamplerState) {
 // ------------------------------------------------------------------ effets
 
 @Composable
-private fun FxPanel(state: SamplerState) {
+internal fun FxPanel(state: SamplerState) {
     val chain = state.chain()
     val sel = chain.getOrNull(state.selectedFx) ?: return
     Column(
@@ -380,7 +400,7 @@ private fun FxPanel(state: SamplerState) {
                 ),
             )
         }
-        KnobGrid(sel.params, AccFx)
+        FxBody(state, sel)
         Text("sticks : gauche = 1er et 2e réglage, droit = 3e", fontSize = 10.sp, color = Dim)
     }
 }
@@ -388,7 +408,7 @@ private fun FxPanel(state: SamplerState) {
 // ------------------------------------------------------------------ pad
 
 @Composable
-private fun PadPanel(state: SamplerState) {
+internal fun PadPanel(state: SamplerState) {
     val pad = state.pads[state.selectedPad]
     val mode = pad.mode.value.toInt()
     val acc = modeAccent(mode)
@@ -475,7 +495,7 @@ private fun PadPanel(state: SamplerState) {
 
 /** Outils d'édition du sample du pad sélectionné (agissent sur la zone entre les deux repères). */
 @Composable
-private fun EditSection(state: SamplerState, pad: PadParams, mode: Int) {
+internal fun EditSection(state: SamplerState, pad: PadParams, mode: Int) {
     if (mode == 2) {
         Text(
             "le mode fm n'utilise pas de sample. passe en sampler ou granulaire pour éditer.",
@@ -530,12 +550,12 @@ private fun EditSection(state: SamplerState, pad: PadParams, mode: Int) {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     Text(text, fontSize = 10.sp, color = Dim, letterSpacing = 1.sp, modifier = Modifier.padding(top = 2.dp))
 }
 
 @Composable
-private fun EditBtn(text: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun EditBtn(text: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     val shape = RoundedCornerShape(10.dp)
     Box(
         modifier
@@ -559,11 +579,12 @@ private fun EditBtn(text: String, modifier: Modifier, enabled: Boolean = true, o
 
 /** Bouton pastille : plein dégradé translucide quand il est actif. */
 @Composable
-private fun Pill(
+internal fun Pill(
     text: String,
     on: Boolean,
     acc: Accent,
     modifier: Modifier = Modifier,
+    hPad: Int = 12,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(50)
@@ -581,7 +602,7 @@ private fun Pill(
                 else Modifier.background(Bg, shape).border(1.dp, Line, shape)
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = hPad.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, fontSize = 11.sp, maxLines = 1, color = if (on) TextHi else Dim)
@@ -591,7 +612,7 @@ private fun Pill(
 // ------------------------------------------------------------------ forme d'onde
 
 @Composable
-private fun Waveform(pad: PadParams, grain: Boolean, acc: Accent) {
+internal fun Waveform(pad: PadParams, grain: Boolean, acc: Accent) {
     val name = pad.sampleName // lus pour redessiner quand le sample change ou est édité
     val version = pad.sampleVersion
     val peaks = pad.sample?.peaks
@@ -661,7 +682,7 @@ private fun Waveform(pad: PadParams, grain: Boolean, acc: Accent) {
 // ------------------------------------------------------------------ boutons rotatifs
 
 @Composable
-private fun KnobGrid(params: List<Param>, acc: Accent, perRow: Int = 4) {
+internal fun KnobGrid(params: List<Param>, acc: Accent, perRow: Int = 4) {
     params.chunked(perRow).forEach { row ->
         Row(Modifier.fillMaxWidth()) {
             row.forEach { p ->
@@ -677,7 +698,7 @@ private fun KnobGrid(params: List<Param>, acc: Accent, perRow: Int = 4) {
  * Les paramètres bipolaires (pan, pitch...) dessinent l'arc depuis le centre.
  */
 @Composable
-private fun Knob(
+internal fun Knob(
     p: Param,
     acc: Accent,
     modifier: Modifier = Modifier,

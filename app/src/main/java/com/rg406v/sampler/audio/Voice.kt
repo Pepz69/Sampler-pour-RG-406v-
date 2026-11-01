@@ -19,7 +19,10 @@ private const val MAXG = 48
 private val HANN = FloatArray(1024) { (0.5 * (1.0 - cos(2.0 * PI * it / 1023.0))).toFloat() }
 private val TWO_PI = 2.0 * PI
 
-/** Une voix = un pad. Rendu (sampler / granulaire / FM) appelé depuis le thread audio. */
+/**
+ * Une voix = un pad. Rendu (sampler / granulaire / FM) appelé depuis le thread audio.
+ * render() écrit dans l[off until off+n] : le moteur découpe les blocs aux instants de déclenchement.
+ */
 class Voice(private val pad: PadParams) {
     @Volatile var trig = false
     @Volatile var rel = false
@@ -28,7 +31,19 @@ class Voice(private val pad: PadParams) {
     /** Décalage de hauteur (demi-tons) imposé par la gamme choisie. */
     @Volatile var keyOffset = 0f
 
-    // enveloppe
+    // Overrides d'une note (p-locks du séquenceur, piano roll). NaN = valeur du pad.
+    @Volatile private var ovPitch = 0f
+    @Volatile private var ovVol = 1f
+    @Volatile private var ovPan = Float.NaN
+    @Volatile private var ovStart = Float.NaN
+
+    fun setLocks(pitch: Float, vol: Float, pan: Float, start: Float) {
+        ovPitch = if (pitch.isNaN()) 0f else pitch
+        ovVol = if (vol.isNaN()) 1f else vol
+        ovPan = pan
+        ovStart = start
+    }
+
     private var env = 0f
     private var stage = IDLE
     private var relStep = 0f
@@ -38,10 +53,8 @@ class Voice(private val pad: PadParams) {
     private var pSus = 1f
     private var pAuto = false
 
-    // sampler
     private var pos = 0.0
 
-    // granulaire
     private val gPos = DoubleArray(MAXG)
     private val gInc = DoubleArray(MAXG)
     private val gAge = IntArray(MAXG)
@@ -52,7 +65,6 @@ class Voice(private val pad: PadParams) {
     private var scanPos = 0f
     private var seed = 22222 + pad.index * 7919
 
-    // FM
     private var phC = 0.0
     private var phM = 0.0
     private var lastM = 0f
@@ -60,6 +72,11 @@ class Voice(private val pad: PadParams) {
 
     /** Voix en cours de jeu (ou sur le point de démarrer). */
     fun isActive(): Boolean = trig || stage != IDLE
+
+    private fun startFrac(): Float {
+        val o = ovStart
+        return if (o.isNaN()) pad.start.value else o
+    }
 
     private fun rnd(): Float {
         seed = seed xor (seed shl 13)
@@ -83,7 +100,7 @@ class Voice(private val pad: PadParams) {
         return stage != IDLE
     }
 
-    fun render(l: FloatArray, r: FloatArray, n: Int, sr: Int) {
+    fun render(l: FloatArray, r: FloatArray, off: Int, n: Int, sr: Int) {
         if (kill) {
             kill = false; trig = false; rel = false
             stage = IDLE; env = 0f
@@ -96,7 +113,7 @@ class Voice(private val pad: PadParams) {
             trig = false
             if (mode == 2 || s != null) {
                 when (mode) {
-                    0 -> pos = (pad.start.value * s!!.data.size).toDouble()
+                    0 -> pos = (startFrac() * s!!.data.size).toDouble()
                     1 -> { java.util.Arrays.fill(gLen, 0); gCount = 0f; scanPos = 0f }
                     else -> { phC = 0.0; phM = 0.0; lastM = 0f; modEnv = 1f }
                 }
@@ -119,28 +136,28 @@ class Voice(private val pad: PadParams) {
         relSamples = max(pad.release.value, 0.002f) * sr
         pAuto = mode == 2 && !pad.gate
 
-        val vol = pad.volume.value
-        val ang = (pad.pan.value + 1f) * (PI.toFloat() / 4f)
+        val vol = pad.volume.value * ovVol
+        val panV = if (ovPan.isNaN()) pad.pan.value else ovPan
+        val ang = (panV + 1f) * (PI.toFloat() / 4f)
         val gl = cos(ang) * vol
         val gr = sin(ang) * vol
 
         when (mode) {
-            0 -> renderSampler(l, r, n, sr, s!!, gl, gr)
-            1 -> renderGranular(l, r, n, sr, s!!, vol)
-            else -> renderFm(l, r, n, sr, gl, gr)
+            0 -> renderSampler(l, r, off, n, sr, s!!, gl, gr)
+            1 -> renderGranular(l, r, off, n, sr, s!!, vol, panV)
+            else -> renderFm(l, r, off, n, sr, gl, gr)
         }
     }
 
-    // ------------------------------------------------------------ sampler
-    private fun renderSampler(l: FloatArray, r: FloatArray, n: Int, sr: Int, s: Sample, gl: Float, gr: Float) {
+    private fun renderSampler(l: FloatArray, r: FloatArray, off: Int, n: Int, sr: Int, s: Sample, gl: Float, gr: Float) {
         val data = s.data
         val len = data.size
         if (len < 2) { stage = IDLE; env = 0f; return }
 
-        val startPos = (pad.start.value * len).toInt().coerceIn(0, len - 2)
+        val startPos = (startFrac() * len).toInt().coerceIn(0, len - 2)
         val endPos = (pad.end.value * len).toInt().coerceIn(startPos + 1, len)
         val loop = pad.loop
-        val rate = 2.0.pow((pad.pitch.value + keyOffset) / 12.0) * s.sampleRate / sr
+        val rate = 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0) * s.sampleRate / sr
 
         var p = pos.coerceAtLeast(startPos.toDouble())
         if (p >= endPos) {
@@ -153,8 +170,8 @@ class Voice(private val pad: PadParams) {
             val frac = (p - i0).toFloat()
             val i1 = if (i0 + 1 < endPos) i0 + 1 else if (loop) startPos else i0
             val x = (data[i0] + (data[i1] - data[i0]) * frac) * env
-            l[i] += x * gl
-            r[i] += x * gr
+            l[off + i] += x * gl
+            r[off + i] += x * gr
 
             p += rate
             if (p >= endPos) {
@@ -169,13 +186,12 @@ class Voice(private val pad: PadParams) {
         pos = p
     }
 
-    // ------------------------------------------------------------ granulaire
-    private fun renderGranular(l: FloatArray, r: FloatArray, n: Int, sr: Int, s: Sample, vol: Float) {
+    private fun renderGranular(l: FloatArray, r: FloatArray, off: Int, n: Int, sr: Int, s: Sample, vol: Float, panBase: Float) {
         val data = s.data
         val len = data.size
         if (len < 2) { stage = IDLE; env = 0f; return }
 
-        val startPos = (pad.start.value * len).toInt().coerceIn(0, len - 2)
+        val startPos = (startFrac() * len).toInt().coerceIn(0, len - 2)
         val endPos = (pad.end.value * len).toInt().coerceIn(startPos + 1, len)
         val region = (endPos - startPos).toFloat()
 
@@ -185,9 +201,8 @@ class Voice(private val pad: PadParams) {
         val spray = pad.gSpray.value
         val detune = pad.gDetune.value
         val pos0 = pad.gPos.value
-        val baseRate = 2.0.pow((pad.pitch.value + keyOffset) / 12.0) * s.sampleRate / sr
+        val baseRate = 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0) * s.sampleRate / sr
         val gain = vol / sqrt(max(1f, dens * sizeSamp / sr))
-        val panBase = pad.pan.value
 
         scanPos += pad.gScan.value * 0.2f * n / sr
         scanPos -= floor(scanPos)
@@ -230,14 +245,13 @@ class Voice(private val pad: PadParams) {
                 gAge[g]++
                 if (gAge[g] >= glen) gLen[g] = 0
             }
-            l[i] += sumL * gain * env
-            r[i] += sumR * gain * env
+            l[off + i] += sumL * gain * env
+            r[off + i] += sumR * gain * env
         }
     }
 
-    // ------------------------------------------------------------ FM (2 opérateurs)
-    private fun renderFm(l: FloatArray, r: FloatArray, n: Int, sr: Int, gl: Float, gr: Float) {
-        val f = 220.0 * 2.0.pow((pad.pitch.value + keyOffset) / 12.0)
+    private fun renderFm(l: FloatArray, r: FloatArray, off: Int, n: Int, sr: Int, gl: Float, gr: Float) {
+        val f = 220.0 * 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0)
         val incC = f / sr
         val incM = incC * pad.fmRatio.value
         val idx = pad.fmIndex.value
@@ -260,8 +274,8 @@ class Voice(private val pad: PadParams) {
             pc += incC
             pc -= floor(pc)
             val x = c * env * 0.5f
-            l[i] += x * gl
-            r[i] += x * gr
+            l[off + i] += x * gl
+            r[off + i] += x * gr
         }
         phC = pc
         phM = pm

@@ -17,6 +17,9 @@ import kotlin.math.tanh
 abstract class Effect(val name: String, val short: String) {
     var enabled by mutableStateOf(false)
     abstract val params: List<Param>
+
+    /** Tous les paramètres à sauvegarder (par défaut : ceux affichés). */
+    open val persistParams: List<Param> get() = params
     abstract fun process(l: FloatArray, r: FloatArray, n: Int)
 }
 
