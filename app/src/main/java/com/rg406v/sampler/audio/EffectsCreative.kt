@@ -43,16 +43,16 @@ class ManipulatorFx(private val sr: Int) : Effect("Manipulator", "Man") {
     private val lpState = FloatArray(2)
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val w = (window.value * 0.001f * sr).coerceIn(256f, (size - 4).toFloat() / 1.0f)
-        val baseSt = pitch.value + fine.value / 100f
-        val spreadSt = spread.value / 100f
+        val w = (window.eff * 0.001f * sr).coerceIn(256f, (size - 4).toFloat() / 1.0f)
+        val baseSt = pitch.eff + fine.eff / 100f
+        val spreadSt = spread.eff / 100f
         val ratioL = 2.0.pow(((baseSt + spreadSt) / 12f).toDouble()).toFloat()
         val ratioR = 2.0.pow(((baseSt - spreadSt) / 12f).toDouble()).toFloat()
         val incL = (1f - ratioL) / w
         val incR = (1f - ratioR) / w
-        val m = mix.value
-        val fb = feedback.value
-        val t = tilt.value
+        val m = mix.eff
+        val fb = feedback.eff
+        val t = tilt.eff
         val lpA = 1f - exp(-2f * PI.toFloat() * 1200f / sr)
         val neutral = abs(baseSt) < 0.005f && spreadSt < 0.005f
         var pl = phase[0]
@@ -208,17 +208,17 @@ class FilterverseFx(private val sr: Int) : Effect("Filterverse", "Fvr") {
     private val vf2 = floatArrayOf(800f, 850f, 1150f, 1800f, 2300f)
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val t = type.value.toInt()
-        val kind = shape.value.toInt()
+        val t = type.eff.toInt()
+        val kind = shape.eff.toInt()
         val baseOct = 0f
-        val resV = res.value
-        val drv = 1f + drive.value * 8f
-        val comp = 1f / (1f + drive.value * 2.2f)
-        val m = mix.value
-        val dep = depth.value
-        val envA = envAmt.value
-        val rt = rate.value
-        val st = stereo.value * 0.5f
+        val resV = res.eff
+        val drv = 1f + drive.eff * 8f
+        val comp = 1f / (1f + drive.eff * 2.2f)
+        val m = mix.eff
+        val dep = depth.eff
+        val envA = envAmt.eff
+        val rt = rate.eff
+        val st = stereo.eff * 0.5f
         val maxFc = sr * 0.45f
         val chunk = 16
         val smoothC = 0.35f
@@ -251,7 +251,7 @@ class FilterverseFx(private val sr: Int) : Effect("Filterverse", "Fvr") {
             // coefficients par canal
             for (ch in 0..1) {
                 val oct = baseOct + lfoVal[ch] * dep * 3f + env * envA * 4f
-                val fc = (cutoff.value * 2f.pow(oct)).coerceIn(20f, maxFc)
+                val fc = (cutoff.eff * 2f.pow(oct)).coerceIn(20f, maxFc)
                 val g = tan(PI.toFloat() * fc / sr)
                 val k = 2f - 1.95f * resV
                 when (t) {

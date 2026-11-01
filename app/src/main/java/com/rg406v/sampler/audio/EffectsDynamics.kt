@@ -123,8 +123,8 @@ class EqFx(private val sr: Int) : Effect("EQ paramétrique", "EQ") {
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
         for (b in bands) {
             if (!b.on) continue
-            if (b.usesGain() && abs(b.gain.value) < 0.01f) continue
-            coeffs(b.type.value.toInt(), b.freq.value, b.gain.value, b.q.value, sr, b.c)
+            if (b.usesGain() && abs(b.gain.eff) < 0.01f) continue
+            coeffs(b.type.eff.toInt(), b.freq.eff, b.gain.eff, b.q.eff, sr, b.c)
             val c = b.c
             for (ch in 0..1) {
                 val buf = if (ch == 0) l else r
@@ -141,7 +141,7 @@ class EqFx(private val sr: Int) : Effect("EQ paramétrique", "EQ") {
                 b.z2[ch] = z2
             }
         }
-        val og = 10f.pow(outGain.value / 20f)
+        val og = 10f.pow(outGain.eff / 20f)
         if (og != 1f) for (i in 0 until n) { l[i] *= og; r[i] *= og }
     }
 
@@ -191,15 +191,15 @@ class CompressorFx(
     private var duckEnv = 0f
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val th = threshold.value
-        val rt = ratio.value
-        val ac = exp(-1f / (sr * attack.value * 0.001f))
-        val rc = exp(-1f / (sr * release.value * 0.001f))
-        val mk = 10f.pow(makeup.value / 20f)
-        val mx = mix.value
-        val kp = kick.value.toInt() - 1
-        val duckAmt = if (kp >= 0 && kp != ownPad) duck.value else 0f
-        val dc = exp(-1f / (sr * duckRel.value * 0.001f))
+        val th = threshold.eff
+        val rt = ratio.eff
+        val ac = exp(-1f / (sr * attack.eff * 0.001f))
+        val rc = exp(-1f / (sr * release.eff * 0.001f))
+        val mk = 10f.pow(makeup.eff / 20f)
+        val mx = mix.eff
+        val kp = kick.eff.toInt() - 1
+        val duckAmt = if (kp >= 0 && kp != ownPad) duck.eff else 0f
+        val dc = exp(-1f / (sr * duckRel.eff * 0.001f))
         val hit = if (kp >= 0) engine.duckHit[kp] else -1
         if (ownPad < 0) engine.keyCapturePad = kp
         val subtract = ownPad < 0 && kp >= 0

@@ -1,6 +1,7 @@
 package com.rg406v.sampler.audio
 
 import android.annotation.SuppressLint
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -21,6 +22,8 @@ class Recorder(private val onProgress: (level: Float, seconds: Float, clip: Bool
     }
 
     @Volatile var gain = 1f
+    @Volatile var preferredDevice: AudioDeviceInfo? = null
+    @Volatile var routedLabel = ""
     @Volatile var monitorWanted = false
     @Volatile private var running = false
     @Volatile private var storing = false
@@ -47,12 +50,16 @@ class Recorder(private val onProgress: (level: Float, seconds: Float, clip: Bool
             rec.release()
             return false
         }
+        preferredDevice?.let { try { rec.setPreferredDevice(it) } catch (e: Exception) { } }
         running = true
         thread = Thread {
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val buf = ShortArray(1024)
             try {
                 rec.startRecording()
+                routedLabel = try {
+                    rec.routedDevice?.let { it.productName.toString() + " (" + it.type + ")" } ?: ""
+                } catch (e: Exception) { "" }
                 while (running) {
                     val n = rec.read(buf, 0, buf.size)
                     if (n <= 0) break
@@ -77,6 +84,7 @@ class Recorder(private val onProgress: (level: Float, seconds: Float, clip: Bool
                 try { rec.stop() } catch (e: Exception) { }
                 rec.release()
                 running = false
+                routedLabel = ""
             }
         }.also { it.start() }
         return true

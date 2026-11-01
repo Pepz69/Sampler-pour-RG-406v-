@@ -21,6 +21,57 @@ abstract class Effect(val name: String, val short: String) {
     /** Tous les paramètres à sauvegarder (par défaut : ceux affichés). */
     open val persistParams: List<Param> get() = params
     abstract fun process(l: FloatArray, r: FloatArray, n: Int)
+
+    // ---- automation : un LFO fait varier un réglage de l'effet, synchronisé au tempo
+    val autoOn = Param("Auto", 0f, 1f, 0f, stepped = true)
+    val autoTarget = Param("Cible", 0f, 15f, 0f, stepped = true)
+    val autoShape = Param("Forme", 0f, 4f, 0f, stepped = true, labels = listOf("sin", "tri", "saw", "carré", "s&h"))
+    val autoRate = Param(
+        "Vitesse", 0f, 7f, 4f, stepped = true,
+        labels = listOf("4 mes", "2 mes", "1 mes", "1/2", "1/4", "1/8", "1/16", "libre"),
+    )
+    val autoHz = Param("Hz", 0.05f, 20f, 1f, log = true, unit = " Hz")
+    val autoDepth = Param("Prof.", 0f, 1f, 0.5f)
+    val autoParams: List<Param> get() = listOf(autoOn, autoTarget, autoShape, autoRate, autoHz, autoDepth)
+
+    private var autoPhase = 0f
+    private var autoLast: Param? = null
+    private var autoSh = 0f
+    private var autoSeed = 12345
+    private val autoBeats = floatArrayOf(16f, 8f, 4f, 2f, 1f, 0.5f, 0.25f)
+
+    /** Appelé par le moteur avant process() : met à jour la modulation du réglage ciblé. */
+    fun runAuto(n: Int, bpm: Float, sr: Int) {
+        val on = autoOn.value >= 0.5f
+        val list = params
+        val target = if (list.isEmpty()) null else list[autoTarget.value.toInt().coerceIn(0, list.size - 1)]
+        val last = autoLast
+        if (last != null && (!on || last !== target)) {
+            last.setMod(0f)
+            autoLast = null
+        }
+        if (!on || target == null) return
+        val idx = autoRate.value.toInt().coerceIn(0, 7)
+        val hz = if (idx >= 7) autoHz.value else bpm / 60f / autoBeats[idx]
+        autoPhase += hz * n / sr
+        if (autoPhase >= 1f) {
+            autoPhase -= autoPhase.toInt()
+            autoSeed = autoSeed xor (autoSeed shl 13)
+            autoSeed = autoSeed xor (autoSeed ushr 17)
+            autoSeed = autoSeed xor (autoSeed shl 5)
+            autoSh = (autoSeed and 0xFFFF) / 32768f - 1f
+        }
+        val ph = autoPhase
+        val v = when (autoShape.value.toInt()) {
+            0 -> sin(2f * PI.toFloat() * ph)
+            1 -> if (ph < 0.5f) 4f * ph - 1f else 3f - 4f * ph
+            2 -> 2f * ph - 1f
+            3 -> if (ph < 0.5f) 1f else -1f
+            else -> autoSh
+        }
+        target.setMod(v * autoDepth.value * 0.5f)
+        autoLast = target
+    }
 }
 
 // ---------------------------------------------------------------- Filtre (SVF)
@@ -34,13 +85,13 @@ class FilterFx(private val sr: Int) : Effect("Filtre", "Flt") {
     private val ic2 = FloatArray(2)
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val fc = cutoff.value.coerceAtMost(sr * 0.45f)
+        val fc = cutoff.eff.coerceAtMost(sr * 0.45f)
         val g = tan(PI.toFloat() * fc / sr)
-        val k = 2f - 1.95f * res.value
+        val k = 2f - 1.95f * res.eff
         val a1 = 1f / (1f + g * (g + k))
         val a2 = g * a1
         val a3 = g * a2
-        val t = type.value.toInt()
+        val t = type.eff.toInt()
         for (ch in 0..1) {
             val buf = if (ch == 0) l else r
             var s1 = ic1[ch]
@@ -74,9 +125,9 @@ class DistortionFx(private val sr: Int) : Effect("Distorsion", "Dst") {
     private val lp = FloatArray(2)
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val gain = 10f.pow(drive.value * 2f)
-        val a = exp(-2f * PI.toFloat() * tone.value / sr)
-        val mx = mix.value
+        val gain = 10f.pow(drive.eff * 2f)
+        val a = exp(-2f * PI.toFloat() * tone.eff / sr)
+        val mx = mix.eff
         for (ch in 0..1) {
             val buf = if (ch == 0) l else r
             var s = lp[ch]
@@ -102,9 +153,9 @@ class BitcrusherFx : Effect("Crusher", "Crush") {
     private var cnt = 0
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val levels = 2f.pow(bits.value - 1f)
-        val ds = down.value.toInt().coerceAtLeast(1)
-        val mx = mix.value
+        val levels = 2f.pow(bits.eff - 1f)
+        val ds = down.eff.toInt().coerceAtLeast(1)
+        val mx = mix.eff
         for (i in 0 until n) {
             if (cnt == 0) {
                 held[0] = round(l[i] * levels) / levels
@@ -142,9 +193,9 @@ class ChorusFx(private val sr: Int) : Effect("Chorus", "Cho") {
     }
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val inc = rate.value / sr
-        val dep = depth.value * 8f
-        val mx = mix.value
+        val inc = rate.eff / sr
+        val dep = depth.eff * 8f
+        val mx = mix.eff
         val twoPi = 2f * PI.toFloat()
         for (i in 0 until n) {
             bl[w] = l[i]
@@ -180,10 +231,10 @@ class DelayFx(private val sr: Int) : Effect("Delay", "Dly") {
     private var cur = 0f
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val tgt = (time.value * sr / 1000f).coerceIn(1f, (size - 4).toFloat())
+        val tgt = (time.eff * sr / 1000f).coerceIn(1f, (size - 4).toFloat())
         if (cur <= 0f) cur = tgt
-        val fb = feedback.value
-        val mx = mix.value
+        val fb = feedback.eff
+        val mx = mix.eff
         for (i in 0 until n) {
             cur += (tgt - cur) * 0.0008f
             var rp = w - cur
@@ -250,9 +301,9 @@ class ReverbFx(sr: Int) : Effect("Reverb", "Rev") {
     private val apR = Array(4) { Allpass(((apTune[it] + 23) * sc).toInt()) }
 
     override fun process(l: FloatArray, r: FloatArray, n: Int) {
-        val fb = 0.7f + 0.28f * size.value
-        val d = damp.value * 0.4f
-        val mx = mix.value
+        val fb = 0.7f + 0.28f * size.eff
+        val d = damp.eff * 0.4f
+        val mx = mix.eff
         for (i in 0 until n) {
             val input = (l[i] + r[i]) * 0.015f
             var oL = 0f

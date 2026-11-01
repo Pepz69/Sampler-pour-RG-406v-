@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioDeviceInfo
 import android.media.AudioTrack
 import android.os.Process
 import kotlin.math.abs
@@ -44,6 +45,17 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
     @Volatile var bufferBlocks = 2
     @Volatile var autoBuffer = true
     @Volatile var perfMode = 0 // 0 faible latence, 1 normal, 2 économie
+
+    // ---- périphérique de sortie (null = choix automatique d'Android)
+    @Volatile var outputDevice: AudioDeviceInfo? = null
+    @Volatile var routedLabel = ""
+
+    // ---- automation par mouvements : horloge de boucle et courbes
+    @Volatile var autoBars = 4
+    @Volatile var autoEnabled = true
+    @Volatile var lanes: Array<Param> = emptyArray()
+    private var autoBeat = 0f
+    private var autoWasPlaying = false
 
     // ---- diagnostic
     @Volatile var underruns = 0
@@ -180,8 +192,22 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
             var lastUnder = 0
             var lastBlk = -1
             var lastBuf = -1
+            var lastDev: AudioDeviceInfo? = null
+            var devCheck = 0
 
             while (running) {
+                val od = outputDevice
+                if (od !== lastDev) {
+                    try { track.setPreferredDevice(od) } catch (e: Exception) { }
+                    lastDev = od
+                    devCheck = 0
+                }
+                if (devCheck-- <= 0) {
+                    devCheck = 40
+                    routedLabel = try {
+                        track.routedDevice?.let { it.productName.toString() + " (" + it.type + ")" } ?: ""
+                    } catch (e: Exception) { "" }
+                }
                 val blk = blockSize.coerceIn(32, MAX_BLOCK)
                 val nbuf = bufferBlocks.coerceIn(1, 8)
                 if (blk != lastBlk || nbuf != lastBuf) {
@@ -193,6 +219,21 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
                 }
 
                 val t0 = System.nanoTime()
+                run {
+                    val playing = seq.playing
+                    if (playing && !autoWasPlaying) autoBeat = 0f
+                    autoWasPlaying = playing
+                    val loopBeats = 4f * autoBars.coerceIn(1, 8)
+                    autoBeat += blk * seq.bpm.value / 60f / sampleRate
+                    if (autoBeat >= loopBeats) autoBeat -= loopBeats * (autoBeat / loopBeats).toInt()
+                    val frac = autoBeat / loopBeats
+                    AutoRec.pos = frac
+                    val ls = lanes
+                    val en = autoEnabled
+                    for (q in ls) {
+                        q.ovr = if (!en || t0 - q.touchNs < 450_000_000L) Float.NaN else (q.lane?.valueAt(frac) ?: Float.NaN)
+                    }
+                }
                 java.util.Arrays.fill(mixL, 0, blk, 0f)
                 java.util.Arrays.fill(mixR, 0, blk, 0f)
                 java.util.Arrays.fill(keyL, 0, blk, 0f)
@@ -256,7 +297,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
                         if (isKey) {
                             for (k in 0 until blk) { keyL[k] = padL[k]; keyR[k] = padR[k] }
                         }
-                        for (fx in pc) if (fx.enabled) fx.process(padL, padR, blk)
+                        for (fx in pc) if (fx.enabled) { fx.runAuto(blk, seq.bpm.value, sampleRate); fx.process(padL, padR, blk) }
                         var peak = 0f
                         for (k in 0 until blk) {
                             peak = max(peak, max(abs(padL[k]), abs(padR[k])))
@@ -273,7 +314,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
                 }
 
                 val ch = chain
-                for (fx in ch) if (fx.enabled) fx.process(mixL, mixR, blk)
+                for (fx in ch) if (fx.enabled) { fx.runAuto(blk, seq.bpm.value, sampleRate); fx.process(mixL, mixR, blk) }
                 punch.process(mixL, mixR, blk)
                 spectrum.feed(mixL, mixR, blk)
 

@@ -9,7 +9,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -181,7 +183,50 @@ internal fun FxBody(state: SamplerState, sel: Effect) {
         }
         else -> KnobGrid(sel.params, AccFx)
     }
+    AutoSection(state, sel)
 }
+
+@Composable
+internal fun AutoSection(state: SamplerState, e: Effect) {
+    MotionSection(state, e)
+    val on = e.autoOn.value >= 0.5f
+    SectionTitle("automation : LFO")
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Pill(if (on) "auto : on" else "auto : off", on, AccFm) { e.autoOn.value = if (on) 0f else 1f }
+        Text(
+            "un LFO fait bouger un réglage autour de la valeur du bouton, au rythme du tempo.",
+            fontSize = 10.sp,
+            color = Dim,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    if (on) {
+        val sc = rememberScrollState()
+        Text("réglage à automatiser", fontSize = 10.sp, color = Dim)
+        Row(Modifier.horizontalScroll(sc), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            e.params.forEachIndexed { i, p ->
+                Pill(p.name, e.autoTarget.value.toInt() == i, AccFx, hPad = 8) { e.autoTarget.value = i.toFloat() }
+            }
+        }
+        Text("forme", fontSize = 10.sp, color = Dim)
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            e.autoShape.labels?.forEachIndexed { i, t ->
+                Pill(t, e.autoShape.value.toInt() == i, AccGrain, Modifier.weight(1f), hPad = 0) { e.autoShape.value = i.toFloat() }
+            }
+        }
+        Text("vitesse (durée d'un cycle)", fontSize = 10.sp, color = Dim)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            e.autoRate.labels?.forEachIndexed { i, t ->
+                Pill(t, e.autoRate.value.toInt() == i, AccGrain, hPad = 8) { e.autoRate.value = i.toFloat() }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Knob(e.autoDepth, AccFx, knobSize = 40.dp)
+            if (e.autoRate.value.toInt() >= 7) Knob(e.autoHz, AccFx, knobSize = 40.dp)
+        }
+    }
+}
+
 
 @Composable
 private fun GrMeter(c: CompressorFx) {
@@ -318,4 +363,38 @@ private fun EqPanel(state: SamplerState, eq: EqFx) {
     }
     KnobGrid(eq.params, AccFx)
     Text("glisse les points sur la courbe : horizontal = fréquence, vertical = gain. le spectre violet est le mix.", fontSize = 10.sp, color = Dim)
+}
+
+@Composable
+private fun MotionSection(state: SamplerState, e: Effect) {
+    state.laneVersion // relit la liste des courbes quand elle change
+    SectionTitle("automation : mouvements")
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Pill(if (state.autoRec) "● rec : on" else "● rec : off", state.autoRec, AccFm) { state.toggleAutoRec() }
+        Text(
+            "rec on : bouge les boutons de n'importe quel effet pendant que la boucle tourne, ils sont enregistrés. " +
+                "rec off pour valider. toucher un bouton reprend la main un instant.",
+            fontSize = 10.sp,
+            color = Dim,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("boucle", fontSize = 10.sp, color = Dim, modifier = Modifier.width(44.dp))
+        for (n in intArrayOf(1, 2, 4, 8)) {
+            Pill("$n mes", state.engine.autoBars == n, AccGrain, Modifier.weight(1f), hPad = 0) { state.setAutoBars(n) }
+        }
+        Pill(if (state.engine.autoEnabled) "lecture on" else "lecture off", state.engine.autoEnabled, AccFx, hPad = 8) {
+            state.engine.autoEnabled = !state.engine.autoEnabled
+            state.laneVersion++
+        }
+    }
+    val withLane = e.persistParams.filter { it.lane != null }
+    if (withLane.isNotEmpty()) {
+        Text("courbes de cet effet (touche pour effacer)", fontSize = 10.sp, color = Dim)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (q in withLane) Pill(q.name + " ✕", true, AccFm, hPad = 8) { state.clearLane(q) }
+            Pill("tout effacer", false, AccFx, hPad = 8) { state.clearLanes(e) }
+        }
+    }
 }

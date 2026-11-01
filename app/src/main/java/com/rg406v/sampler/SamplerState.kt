@@ -17,7 +17,9 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.rg406v.sampler.audio.AudioEngine
 import com.rg406v.sampler.audio.BitcrusherFx
 import com.rg406v.sampler.audio.ChorusFx
+import com.rg406v.sampler.audio.AutoRec
 import com.rg406v.sampler.audio.FilterverseFx
+import com.rg406v.sampler.audio.Lane
 import com.rg406v.sampler.audio.ManipulatorFx
 import com.rg406v.sampler.audio.CompressorFx
 import com.rg406v.sampler.audio.DefaultSounds
@@ -54,6 +56,11 @@ const val TAB_AUDIO = 7
 const val NTABS = 8
 
 /** Tout l'état de l'appli : pads, effets, séquenceur, kits, réglages audio. Partagé entre l'UI, la manette et le moteur. */
+/** Un périphérique audio proposé dans le menu (info == null : automatique). */
+class DevItem(val info: android.media.AudioDeviceInfo?, val label: String) {
+    val id: Int get() = info?.id ?: 0
+}
+
 class SamplerState(private val ctx: Context) {
 
     val pads = List(16) { PadParams(it) }
@@ -69,7 +76,7 @@ class SamplerState(private val ctx: Context) {
         FilterFx(sr), DistortionFx(sr), BitcrusherFx(), ChorusFx(sr), DelayFx(sr), ReverbFx(sr),
         EqFx(sr), CompressorFx(sr, engine, ownPad),
         ManipulatorFx(sr), FilterverseFx(sr),
-    )
+    ).also { chain -> for (e in chain) for (q in e.persistParams) q.autoable = true }
 
     /** Chaîne master, dans l'ordre du signal (gauche → droite). */
     val fx = mutableStateListOf<Effect>()
@@ -155,6 +162,13 @@ class SamplerState(private val ctx: Context) {
             val pr = engine.outPeakR
             engine.outPeakL = 0f
             engine.outPeakR = 0f
+            run {
+                val now = System.nanoTime()
+                for (q in engine.lanes) {
+                    val o = q.ovr
+                    if (!o.isNaN() && now - q.touchNs > 450_000_000L && q.value != o) q.setSilently(o)
+                }
+            }
             val nl = meterPos(pl)
             val nr = meterPos(pr)
             outL = if (nl > outL) nl else max(0f, outL - 0.035f)
@@ -822,6 +836,22 @@ class SamplerState(private val ctx: Context) {
             val ps = JSONArray()
             for (p in e.persistParams) ps.put(p.value.toDouble())
             o.put("p", ps)
+            val au = JSONArray()
+            for (q in e.autoParams) au.put(q.value.toDouble())
+            o.put("a", au)
+            val ln = JSONArray()
+            e.persistParams.forEachIndexed { k, q ->
+                val l = q.lane
+                if (l != null && l.complete()) {
+                    val lo = JSONObject()
+                    lo.put("k", k)
+                    val va = JSONArray()
+                    for (v in l.raw) va.put(Math.round(v * 1000.0) / 1000.0)
+                    lo.put("v", va)
+                    ln.put(lo)
+                }
+            }
+            o.put("lanes", ln)
             a.put(o)
         }
         return a
@@ -844,6 +874,26 @@ class SamplerState(private val ctx: Context) {
                     if (k < ps.length()) params[k].value = ps.getDouble(k).toFloat().coerceIn(params[k].min, params[k].max)
                 }
             }
+            val au = o.optJSONArray("a")
+            if (au != null) {
+                val ap = e.autoParams
+                for (k in ap.indices) {
+                    if (k < au.length()) ap[k].value = au.getDouble(k).toFloat().coerceIn(ap[k].min, ap[k].max)
+                }
+            }
+            val lj = o.optJSONArray("lanes")
+            if (lj != null) {
+                val pp = e.persistParams
+                for (m in 0 until lj.length()) {
+                    val lo = lj.getJSONObject(m)
+                    val k = lo.optInt("k", -1)
+                    val va = lo.optJSONArray("v") ?: continue
+                    if (k !in pp.indices || va.length() != AutoRec.SLOTS) continue
+                    val lane = Lane()
+                    for (i in 0 until AutoRec.SLOTS) lane.raw[i] = va.getDouble(i).toFloat()
+                    pp[k].lane = lane
+                }
+            }
             ordered.add(e)
         }
         ordered.addAll(fresh)
@@ -851,6 +901,7 @@ class SamplerState(private val ctx: Context) {
             target.clear()
             target.addAll(ordered)
             onDone()
+            rebuildLanes()
         }
     }
 
@@ -930,6 +981,113 @@ class SamplerState(private val ctx: Context) {
         }
     }
 
+    // ------------------------------------------------------------ automation : enregistrement de mouvements
+    var autoRec by mutableStateOf(false)
+    var laneVersion by mutableIntStateOf(0)
+
+    private fun allEffects(): List<Effect> = fx.toList() + padFx.flatMap { it.toList() }
+
+    fun rebuildLanes() {
+        engine.lanes = allEffects().flatMap { it.persistParams }.filter { it.lane != null }.toTypedArray()
+        laneVersion++
+    }
+
+    fun toggleAutoRec() {
+        if (!autoRec) {
+            for (e in allEffects()) for (q in e.persistParams) q.lastSlot = -1
+            AutoRec.armed = true
+            autoRec = true
+            toast("Enregistrement des mouvements : bouge un bouton d'effet")
+        } else {
+            AutoRec.armed = false
+            autoRec = false
+            for (e in allEffects()) for (q in e.persistParams) {
+                val l = q.lane ?: continue
+                if (!l.finish()) { q.lane = null; q.ovr = Float.NaN }
+            }
+            rebuildLanes()
+        }
+    }
+
+    fun clearLane(q: Param) {
+        q.lane = null
+        q.ovr = Float.NaN
+        rebuildLanes()
+    }
+
+    fun clearLanes(e: Effect) {
+        for (q in e.persistParams) { q.lane = null; q.ovr = Float.NaN }
+        rebuildLanes()
+    }
+
+    fun setAutoBars(n: Int) { engine.autoBars = n }
+
+    // ------------------------------------------------------------ périphériques audio (USB, casque...)
+    private val audioManager = ctx.getSystemService(android.media.AudioManager::class.java)
+    val outDevices = mutableStateListOf<DevItem>(DevItem(null, "automatique"))
+    val inDevices = mutableStateListOf<DevItem>(DevItem(null, "micro par défaut"))
+    var outSelId by mutableIntStateOf(0)
+    var inSelId by mutableIntStateOf(0)
+    val routedOut: String get() = engine.routedLabel
+    val routedIn: String get() = recorder.routedLabel
+
+    private fun devLabel(d: android.media.AudioDeviceInfo): String {
+        val kind = when (d.type) {
+            android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "haut-parleur"
+            android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC -> "micro interne"
+            android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "casque"
+            android.media.AudioDeviceInfo.TYPE_USB_DEVICE, android.media.AudioDeviceInfo.TYPE_USB_HEADSET -> "USB"
+            android.media.AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB acc."
+            android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "bluetooth"
+            android.media.AudioDeviceInfo.TYPE_HDMI -> "HDMI"
+            android.media.AudioDeviceInfo.TYPE_LINE_ANALOG, android.media.AudioDeviceInfo.TYPE_LINE_DIGITAL -> "ligne"
+            else -> "autre"
+        }
+        val name = d.productName?.toString().orEmpty()
+        return if (name.isBlank()) kind else "$kind · $name"
+    }
+
+    fun refreshDevices() {
+        val am = audioManager ?: return
+        val outs = am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)
+            .filter { it.type != android.media.AudioDeviceInfo.TYPE_TELEPHONY }
+        val ins = am.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS)
+            .filter {
+                it.type != android.media.AudioDeviceInfo.TYPE_TELEPHONY &&
+                    it.type != android.media.AudioDeviceInfo.TYPE_REMOTE_SUBMIX
+            }
+        outDevices.clear()
+        outDevices.add(DevItem(null, "automatique"))
+        outs.forEach { outDevices.add(DevItem(it, devLabel(it))) }
+        inDevices.clear()
+        inDevices.add(DevItem(null, "micro par défaut"))
+        ins.forEach { inDevices.add(DevItem(it, devLabel(it))) }
+        // un périphérique débranché : retour au choix automatique
+        if (outSelId != 0 && outDevices.none { it.id == outSelId }) selectOutput(0)
+        if (inSelId != 0 && inDevices.none { it.id == inSelId }) selectInput(0)
+    }
+
+    fun selectOutput(id: Int) {
+        outSelId = id
+        engine.outputDevice = outDevices.firstOrNull { it.id == id }?.info
+    }
+
+    fun selectInput(id: Int) {
+        if (recording) { toast("Termine d'abord l'enregistrement"); return }
+        inSelId = id
+        recorder.preferredDevice = inDevices.firstOrNull { it.id == id }?.info
+        if (inMonitor) {
+            recorder.stopMonitor()
+            inMonitor = false
+            startMonitor()
+        }
+    }
+
+    private val deviceCallback = object : android.media.AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>?) { refreshDevices() }
+        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>?) { refreshDevices() }
+    }
+
     // ------------------------------------------------------------ cycle de vie
 
     fun resume() {
@@ -952,6 +1110,8 @@ class SamplerState(private val ctx: Context) {
     }
 
     init {
+        audioManager?.registerAudioDeviceCallback(deviceCallback, ui)
+        refreshDevices()
         val sr = engine.sampleRate
         fx.addAll(makeChain(sr, -1))
         engine.chain = fx.toTypedArray()

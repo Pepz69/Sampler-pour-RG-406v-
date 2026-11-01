@@ -366,6 +366,15 @@ internal fun AudioPanel(state: SamplerState) {
             Pill("économie", eng.perfMode == 2, AccSampler, Modifier.weight(1f), hPad = 2) { state.setPerf(2) }
         }
 
+        SectionTitle("interface audio (sortie)")
+        DeviceList(state.outDevices, state.outSelId) { state.selectOutput(it) }
+        Text(
+            "actuellement utilisée : " + (state.routedOut.ifBlank { "inconnue" }) +
+                "  — branche ton interface USB (câble OTG) puis choisis-la ici.",
+            fontSize = 10.sp,
+            color = Dim,
+        )
+
         SectionTitle("diagnostic")
         val shape = RoundedCornerShape(10.dp)
         Column(
@@ -409,6 +418,15 @@ internal fun AudioPanel(state: SamplerState) {
             color = Dim,
         )
 
+        SectionTitle("entrée audio")
+        DeviceList(state.inDevices, state.inSelId) { state.selectInput(it) }
+        Text(
+            "entrée utilisée : " + (state.routedIn.ifBlank { "démarre « écoute du niveau » pour le voir" }) +
+                ". sur une interface multi-canaux, seule l'entrée 1 (mono) est utilisée.",
+            fontSize = 10.sp,
+            color = Dim,
+        )
+
         SectionTitle("entrée micro")
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Knob(state.inGain, AccFm, knobSize = 40.dp)
@@ -423,5 +441,14 @@ internal fun AudioPanel(state: SamplerState) {
             fontSize = 10.sp,
             color = Dim,
         )
+    }
+}
+
+@Composable
+private fun DeviceList(items: List<com.rg406v.sampler.DevItem>, selected: Int, onPick: (Int) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (d in items) {
+            Pill(d.label, d.id == selected, AccSampler, Modifier.fillMaxWidth(), hPad = 6) { onPick(d.id) }
+        }
     }
 }

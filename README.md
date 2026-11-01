@@ -74,3 +74,12 @@ Tout est aussi jouable au tactile (multi-touch).
 - **Manipulator** (`man`) : transpositeur ±24 demi-tons, fine, spread stéréo, retour, fenêtre, tilt.
 - **Filterverse** (`fvr`) : filtre LP12/LP24/HP/BP/notch/peigne/voyelle/phaser, drive, LFO (5 formes), suiveur d'enveloppe, décalage stéréo.
 Effets originaux inspirés de l'esprit de ces plugins Polyverse, pas leur code.
+
+## Interface audio USB
+Menu « audio » : choix du périphérique de sortie et d'entrée (USB, casque, interne). Mets le Zoom H8 en mode Audio Interface, branche-le en OTG, puis choisis-le dans les deux listes.
+
+## Automation
+Chaque effet (master et pads) a une section « automation » sous ses boutons : cible, forme du LFO, vitesse (4 mesures à 1/16 ou libre en Hz) et profondeur. Le LFO tourne autour de la valeur du bouton.
+
+## Automation par mouvements
+Section « automation : mouvements » de chaque effet : « rec on », bouge un bouton d'effet pendant que la boucle tourne (1, 2, 4 ou 8 mesures, redémarre avec le séquenceur), « rec off » pour valider. La courbe est rejouée en boucle, sauvegardée avec l'état, effaçable par réglage.
