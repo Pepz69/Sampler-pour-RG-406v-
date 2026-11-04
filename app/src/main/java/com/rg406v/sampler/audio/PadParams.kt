@@ -45,7 +45,7 @@ class PadParams(val index: Int) {
     var fmName by mutableStateOf("FM")
 
     /** 0 = sampler, 1 = granulaire, 2 = FM. */
-    val mode = Param("Mode", 0f, 2f, 0f, stepped = true, labels = listOf("Sampler", "Granulaire", "FM"))
+    val mode = Param("Mode", 0f, 3f, 0f, stepped = true, labels = listOf("Sampler", "Granulaire", "FM", "Wavetable"))
 
     // ---- communs
     val volume = Param("Volume", 0f, 1f, 0.9f)
@@ -72,6 +72,25 @@ class PadParams(val index: Int) {
     val fmFeedback = Param("Feedback", 0f, 1f, 0f)
     val fmModDecay = Param("Mod decay", 0.02f, 5f, 0.4f, log = true, unit = " s", decimals = 2)
 
+    // ---- wavetable (32 tables, morphing, unison, sync, mouvement automatique de la position)
+    val wtTable = Param("Table", 0f, (Wavetables.COUNT - 1).toFloat(), 0f, stepped = true, decimals = 0, labels = Wavetables.NAMES)
+    val wtPos = Param("Position", 0f, 1f, 0f)
+    val wtWarp = Param("Sync", 0f, 1f, 0f)
+    val wtUni = Param("Unison", 1f, 7f, 1f, stepped = true, decimals = 0)
+    val wtDetune = Param("Détune", 0f, 100f, 18f, unit = " ct", decimals = 0)
+    val wtSpread = Param("Stéréo", 0f, 1f, 0.6f)
+    val wtSub = Param("Sub", 0f, 1f, 0f)
+    val wtMotion = Param("Mouv. vit.", 0.05f, 12f, 0.5f, log = true, unit = " Hz", decimals = 2)
+    val wtDepth = Param("Mouv. prof.", 0f, 1f, 0f)
+
+    /** Nom affiché sur le pad : sample, patch FM ou table de wavetable. */
+    val displayName: String
+        get() = when (mode.value.toInt()) {
+            2 -> fmName
+            3 -> "WT " + Wavetables.NAMES.getOrElse(wtTable.value.toInt()) { "" }
+            else -> sampleName
+        }
+
     /** Boucle entre début et fin (impose le mode gate). */
     var loop by mutableStateOf(false)
 
@@ -82,6 +101,7 @@ class PadParams(val index: Int) {
         listOf(
             mode, volume, pan, pitch, start, end, attack, decay, sustain, release,
             gPos, gSize, gDens, gSpray, gDetune, gScan, fmRatio, fmIndex, fmFeedback, fmModDecay,
+            wtTable, wtPos, wtWarp, wtUni, wtDetune, wtSpread, wtSub, wtMotion, wtDepth,
         )
     }
 

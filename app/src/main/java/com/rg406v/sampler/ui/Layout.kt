@@ -114,7 +114,7 @@ private fun TopBar(state: SamplerState) {
                 )
                 Text(
                     if (state.recording) "● rec → pad $n"
-                    else "pad $n · " + (if (pad.mode.value.toInt() == 2) pad.fmName else pad.sampleName),
+                    else "pad $n · " + pad.displayName,
                     fontSize = 13.sp,
                     color = if (state.recording) Pink else TextHi,
                     maxLines = 1,
@@ -122,9 +122,7 @@ private fun TopBar(state: SamplerState) {
                 )
             }
             val scale = state.engine.scale
-            Pill("♪ " + scale.display().lowercase(), scale.value > 0f, AccFx, hPad = 8) {
-                scale.value = if (scale.value >= scale.max) scale.min else scale.value + 1f
-            }
+            Pill("♪ " + scale.display().take(9), scale.value > 0f, AccFx, hPad = 8) { state.goTab(TAB_PIANO) }
             Pill(if (seq.playing) "■ stop" else "▶ play", seq.playing, AccSampler, hPad = 10) { state.seqToggle() }
             Pill("● rec", seq.recArmed, AccFm, hPad = 10) { seq.recArmed = !seq.recArmed }
             Knob(seq.bpm, AccFx, knobSize = 30.dp)
@@ -313,7 +311,7 @@ private fun PadsScreen(state: SamplerState) {
         ) {
             Text("pad ${state.selectedPad + 1}", fontSize = 16.sp, fontWeight = FontWeight.Light)
             Text(
-                (if (mode == 2) pad.fmName else pad.sampleName) + " · " + pad.mode.display().lowercase(),
+                pad.displayName + " · " + pad.mode.display().lowercase(),
                 fontSize = 11.sp,
                 color = Dim,
                 maxLines = 2,
@@ -389,7 +387,7 @@ private fun MixChannel(state: SamplerState, i: Int, modifier: Modifier) {
     ) {
         Text("${i + 1}", fontSize = 11.sp, color = TextHi)
         Text(
-            if (pad.mode.value.toInt() == 2) pad.fmName else pad.sampleName,
+            pad.displayName,
             fontSize = 8.sp,
             color = Dim,
             maxLines = 1,

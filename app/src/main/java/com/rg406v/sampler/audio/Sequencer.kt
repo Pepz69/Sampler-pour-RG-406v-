@@ -141,6 +141,16 @@ class Sequencer(private val sampleRate: Int) {
         evPitch[k] = pitch; evVol[k] = vol; evPan[k] = pan; evStart[k] = start
     }
 
+    /** Horloge du séquenceur (échantillons) au début du prochain bloc. */
+    fun clock(): Double = now
+
+    /** Instant du prochain pas de la grille (pour caler l'arpégiateur quand le séquenceur joue). */
+    fun gridTime(): Double = nextStepTime
+
+    /** Note de l'arpégiateur : même file d'événements que les pas. */
+    fun addArpEvent(t: Double, pad: Int, type: Int, pitch: Float) =
+        addEv(t, pad, type, pitch, Float.NaN, Float.NaN, Float.NaN)
+
     private fun condOk(c: Int, cycle: Long): Boolean {
         if (c <= 0 || c >= COND_A.size) return true
         return (cycle % COND_B[c]).toInt() + 1 == COND_A[c]

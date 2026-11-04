@@ -62,6 +62,7 @@ import com.rg406v.sampler.TAB_PIANO
 import com.rg406v.sampler.TAB_PUNCH
 import com.rg406v.sampler.TAB_SEQ
 import com.rg406v.sampler.audio.PadParams
+import com.rg406v.sampler.audio.Wavetables
 import com.rg406v.sampler.audio.Param
 import kotlin.math.PI
 import kotlin.math.abs
@@ -98,6 +99,7 @@ internal val AccFm = Accent(Pink, Violet)
 internal fun modeAccent(mode: Int) = when (mode) {
     1 -> AccGrain
     2 -> AccFm
+    3 -> AccFx
     else -> AccSampler
 }
 
@@ -143,6 +145,7 @@ internal fun PadButton(state: SamplerState, idx: Int, modifier: Modifier) {
     val label = when (mode) {
         1 -> "grains\n" + pad.sampleName
         2 -> pad.fmName
+        3 -> pad.displayName
         else -> pad.sampleName
     }
     val recTarget = state.recording && selected
@@ -318,7 +321,7 @@ internal fun PadPanel(state: SamplerState) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (mode != 2) Pill("charger", false, acc) { state.requestPick(state.selectedPad) }
+            if (mode < 2) Pill("charger", false, acc) { state.requestPick(state.selectedPad) }
             Pill(
                 if (state.recording) "■ %.1f s".format(state.recSeconds) else "● micro",
                 state.recording,
@@ -350,11 +353,14 @@ internal fun PadPanel(state: SamplerState) {
             EditSection(state, pad, mode)
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("sampler", "granulaire", "fm").forEachIndexed { k, t ->
-                    Pill(t, mode == k, modeAccent(k)) { pad.mode.value = k.toFloat() }
+                listOf("sampler", "grain", "fm", "wavetable").forEachIndexed { k, t ->
+                    Pill(t, mode == k, modeAccent(k)) {
+                        pad.mode.value = k.toFloat()
+                        if (k == 3) Wavetables.prefetch(pad.wtTable.value.toInt())
+                    }
                 }
             }
-            if (mode != 2) Waveform(pad, mode == 1, acc)
+            if (mode < 2) Waveform(pad, mode == 1, acc)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (mode == 0) Pill("loop", pad.loop, acc) { pad.loop = !pad.loop }
                 if (mode != 1) Pill("gate", pad.gate || (mode == 0 && pad.loop), acc) { pad.gate = !pad.gate }
@@ -367,6 +373,7 @@ internal fun PadPanel(state: SamplerState) {
                     SectionTitle("son")
                     KnobGrid(listOf(pad.volume, pad.pan, pad.pitch, pad.start, pad.end), acc)
                 }
+                3 -> WavetableBody(pad, acc)
                 2 -> {
                     SectionTitle("fm")
                     KnobGrid(listOf(pad.fmRatio, pad.fmIndex, pad.fmFeedback, pad.fmModDecay), acc)
@@ -385,6 +392,7 @@ internal fun PadPanel(state: SamplerState) {
                 when (mode) {
                     1 -> "sticks : gauche = position / taille, droit = densité / spray · R2 = micro"
                     2 -> "sticks : gauche = ratio / index, droit = feedback / mod decay · R2 = micro"
+                    3 -> "sticks : gauche = position / sync, droit = unison / détune · R2 = micro"
                     else -> "sticks : gauche = pitch / volume, droit = début / fin · R2 = micro"
                 },
                 fontSize = 10.sp,
@@ -397,9 +405,9 @@ internal fun PadPanel(state: SamplerState) {
 /** Outils d'édition du sample du pad sélectionné (agissent sur la zone entre les deux repères). */
 @Composable
 internal fun EditSection(state: SamplerState, pad: PadParams, mode: Int) {
-    if (mode == 2) {
+    if (mode >= 2) {
         Text(
-            "le mode fm n'utilise pas de sample. passe en sampler ou granulaire pour éditer.",
+            "les modes fm et wavetable n'utilisent pas de sample. passe en sampler ou granulaire pour éditer.",
             fontSize = 11.sp,
             color = Dim,
         )
@@ -677,4 +685,61 @@ internal fun Knob(
             )
         }
     }
+}
+
+/** Réglages du mode wavetable : choix de la table, morphing, unison, sync, mouvement. */
+@Composable
+internal fun WavetableBody(pad: PadParams, acc: Accent) {
+    val open = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val t = pad.wtTable.value.toInt()
+    androidx.compose.runtime.LaunchedEffect(t) { Wavetables.prefetch(t) }
+    SectionTitle("table")
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Pill("‹", false, acc, hPad = 10) { pad.wtTable.value = ((t - 1 + Wavetables.COUNT) % Wavetables.COUNT).toFloat() }
+        Text(
+            "${t + 1}. " + pad.wtTable.display(),
+            fontSize = 12.sp,
+            color = TextHi,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f),
+        )
+        Pill("›", false, acc, hPad = 10) { pad.wtTable.value = ((t + 1) % Wavetables.COUNT).toFloat() }
+        Pill("liste", open.value, acc, hPad = 8) { open.value = !open.value }
+    }
+    if (open.value) {
+        Wavetables.NAMES.withIndex().chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for ((i, n) in row) {
+                    val on = i == t
+                    val shape = RoundedCornerShape(8.dp)
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(26.dp)
+                            .clip(shape)
+                            .background(if (on) Violet.copy(alpha = 0.45f) else Bg, shape)
+                            .border(1.dp, if (on) Violet else Line, shape)
+                            .clickable { pad.wtTable.value = i.toFloat() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(n, fontSize = 10.sp, color = if (on) TextHi else Dim, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+    SectionTitle("oscillateur")
+    KnobGrid(listOf(pad.wtPos, pad.wtWarp, pad.wtUni, pad.wtDetune, pad.wtSpread, pad.wtSub), acc)
+    SectionTitle("mouvement de la position")
+    KnobGrid(listOf(pad.wtMotion, pad.wtDepth), acc)
+    SectionTitle("son")
+    KnobGrid(listOf(pad.volume, pad.pan, pad.pitch), acc)
+    Text(
+        "position = morphing entre les 32 images de la table. sync = synchronisation dure. unison = jusqu'à 7 voix désaccordées. " +
+            "mouvement = un LFO fait balayer la position. note de base : la3 (220 Hz), pitch pour transposer.",
+        fontSize = 10.sp,
+        color = Dim,
+    )
 }

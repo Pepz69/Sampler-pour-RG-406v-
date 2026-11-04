@@ -26,19 +26,17 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
     val sampleRate: Int
     val master = Param("Master", 0f, 1f, 0.8f)
 
-    val scale = Param(
-        "Gamme", 0f, 4f, 0f, stepped = true,
-        labels = listOf("aucune", "chromatique", "majeur", "mineur", "pentatonique"),
-    )
-    private val scales = arrayOf(
-        IntArray(16),
-        IntArray(16) { it },
-        intArrayOf(0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24, 26),
-        intArrayOf(0, 2, 3, 5, 7, 8, 10, 12, 14, 15, 17, 19, 20, 22, 24, 26),
-        intArrayOf(0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24, 26, 28, 31, 33, 36),
-    )
+    val scale = Param("Gamme", 0f, (Scales.size - 1).toFloat(), 0f, stepped = true, decimals = 0, labels = Scales.names)
+    val scaleRoot = Param("Tonique", 0f, 11f, 0f, stepped = true, decimals = 0, labels = Scales.NOTE_NAMES)
 
-    fun scaleOffset(i: Int): Float = scales[scale.value.toInt().coerceIn(0, 4)][i % 16].toFloat()
+    /** Hauteur (demi-tons) du pad i : degrés de la gamme choisie, en partant de la tonique. */
+    fun scaleOffset(i: Int): Float {
+        val t = scale.value.toInt().coerceIn(0, Scales.size - 1)
+        if (t == 0) return 0f
+        val st = Scales.steps[t]
+        val d = i % 16
+        return (12 * (d / st.size) + st[d % st.size] + scaleRoot.value.toInt()).toFloat()
+    }
 
     // ---- réglages de latence / anti-craquement (appliqués en direct)
     @Volatile var blockSize = 256
@@ -92,6 +90,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
     }
 
     val seq = Sequencer(sampleRate)
+    val arp = Arp(seq, sampleRate)
     val punch = PunchFx(sampleRate) { seq.bpm.value }
     val spectrum = SpectrumAnalyzer(sampleRate)
 
@@ -242,6 +241,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
                     duckHit[k] = if (uiHit[k]) { uiHit[k] = false; 0 } else -1
                 }
 
+                arp.tick(blk, seq.bpm.value)
                 val nEv = seq.advance(blk)
                 var evMask = 0
                 for (e in 0 until nEv) {

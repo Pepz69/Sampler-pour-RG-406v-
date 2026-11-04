@@ -92,3 +92,6 @@ Onglet « kits » > « projets » : enregistrer / charger / supprimer un projet 
 
 ## Organisation de l'écran
 Bandeau du haut (projet, play, rec, tempo, patterns 1-8, niveaux) · rail de modes à gauche : PADS, SEQ (pas / piano), SAMPLE, MIXER, FX (master / pad / punch-in), PROJET, SETUP · Select = mode suivant, Select maintenu = Shift.
+
+## Ajouts : wavetable, gammes, arpégiateur, kits de style
+Voir MODIFICATIONS.md.

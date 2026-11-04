@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -91,7 +92,7 @@ private fun TrackHeader(state: SamplerState, showLenPages: Boolean = true) {
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Text(
-            "pad ${tr + 1} · " + (if (state.pads[tr].mode.value.toInt() == 2) state.pads[tr].fmName else state.pads[tr].sampleName),
+            "pad ${tr + 1} · " + state.pads[tr].displayName,
             fontSize = 11.sp,
             color = TextHi,
             maxLines = 1,
@@ -258,6 +259,8 @@ internal fun PianoPanel(state: SamplerState) {
     val page = state.seqPage.coerceIn(0, pages - 1)
     val playStep = if (seq.playing && tk >= 0) seq.playStep(tr) else -1
     val lo = state.pianoOct * 12 // la fenêtre montre lo .. lo+12
+    val mask = state.scaleMask()
+    val rootPc = state.engine.scaleRoot.value.toInt()
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -275,6 +278,8 @@ internal fun PianoPanel(state: SamplerState) {
             Pill("oct +", false, AccFx) { if (state.pianoOct < 1) state.pianoOct += 1 }
         }
         TrackHeader(state)
+        ScalePicker(state)
+        ArpSection(state)
 
         val shape = RoundedCornerShape(10.dp)
         Row(
@@ -285,20 +290,28 @@ internal fun PianoPanel(state: SamplerState) {
                 for (r in 0 until ROWS) {
                     val semis = lo + (ROWS - 1) - r
                     val black = pitchClass(semis) in BLACK_KEYS
+                    val inKey = mask == null || mask[Math.floorMod(semis - rootPc, 12)]
+                    val isRoot = mask != null && Math.floorMod(semis - rootPc, 12) == 0
+                    val keyBg = when {
+                        semis == 0 -> Violet.copy(alpha = 0.55f)
+                        isRoot -> Cyan.copy(alpha = 0.45f)
+                        !inKey -> Color(0xFF0B0C10)
+                        black -> Bg
+                        else -> Color(0xFF2B2F42)
+                    }
                     Box(
                         Modifier
                             .fillMaxWidth()
                             .height(ROW_DP.dp)
-                            .background(
-                                if (semis == 0) Violet.copy(alpha = 0.55f) else if (black) Bg else Color(0xFF2B2F42)
-                            )
+                            .background(keyBg)
                             .border(0.5.dp, Line)
                             .pointerInput(semis) {
                                 awaitEachGesture {
                                     awaitFirstDown(requireUnconsumed = false)
-                                    state.noteDown(semis)
+                                    val sn = state.snap(semis)
+                                    state.noteDown(sn)
                                     waitForUpOrCancellation()
-                                    state.noteUp()
+                                    state.noteUp(sn)
                                 }
                             },
                         contentAlignment = Alignment.CenterEnd,
@@ -322,7 +335,7 @@ internal fun PianoPanel(state: SamplerState) {
                             val c = floor(pos.x / cw).toInt().coerceIn(0, 15)
                             val r = floor(pos.y / rh).toInt().coerceIn(0, ROWS - 1)
                             val s = page * 16 + c
-                            if (s < len) state.pianoTap(s, lo + (ROWS - 1) - r)
+                            if (s < len) state.pianoTap(s, state.snap(lo + (ROWS - 1) - r))
                         }
                     }
             ) {
@@ -333,8 +346,14 @@ internal fun PianoPanel(state: SamplerState) {
                 for (r in 0 until ROWS) {
                     val semis = lo + (ROWS - 1) - r
                     val black = pitchClass(semis) in BLACK_KEYS
+                    val dIn = mask == null || mask[Math.floorMod(semis - rootPc, 12)]
+                    val dRoot = mask != null && Math.floorMod(semis - rootPc, 12) == 0
                     drawRect(
-                        if (semis == 0) Violet.copy(alpha = 0.16f) else if (black) Color(0xFF0E0F15) else ModuleHi,
+                        if (semis == 0) Violet.copy(alpha = 0.16f)
+                        else if (dRoot) Cyan.copy(alpha = 0.14f)
+                        else if (!dIn) Color(0xFF08090D)
+                        else if (mask != null) Color(0xFF1E2234)
+                        else if (black) Color(0xFF0E0F15) else ModuleHi,
                         Offset(0f, r * rh),
                         Size(size.width, rh),
                     )
@@ -388,5 +407,109 @@ internal fun PianoPanel(state: SamplerState) {
             fontSize = 10.sp,
             color = Dim,
         )
+    }
+}
+
+// ------------------------------------------------------------------ gammes et arpégiateur
+
+@Composable
+private fun Chip(text: String, on: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier
+            .height(26.dp)
+            .clip(shape)
+            .background(if (on) Violet.copy(alpha = 0.45f) else Bg, shape)
+            .border(1.dp, if (on) Violet else Line, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, fontSize = 10.sp, color = if (on) TextHi else Dim, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun ScalePicker(state: SamplerState) {
+    val eng = state.engine
+    val open = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val t = eng.scale.value.toInt()
+    val root = eng.scaleRoot.value.toInt()
+    SectionTitle("gamme · tonique")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        com.rg406v.sampler.audio.Scales.NOTE_NAMES.forEachIndexed { k, n ->
+            Chip(n, root == k, Modifier.weight(1f)) { eng.scaleRoot.value = k.toFloat() }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        Pill("‹", false, AccFx, hPad = 10) {
+            eng.scale.value = (t - 1 + com.rg406v.sampler.audio.Scales.size) % com.rg406v.sampler.audio.Scales.size.toFloat()
+        }
+        Text(
+            eng.scale.display(),
+            fontSize = 12.sp,
+            color = TextHi,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center,
+        )
+        Pill("›", false, AccFx, hPad = 10) {
+            eng.scale.value = ((t + 1) % com.rg406v.sampler.audio.Scales.size).toFloat()
+        }
+        Pill("liste", open.value, AccSampler, hPad = 8) { open.value = !open.value }
+        Pill("snap", state.pianoSnap, AccGrain, hPad = 8) { state.pianoSnap = !state.pianoSnap }
+    }
+    if (t > 1) {
+        Text(
+            com.rg406v.sampler.audio.Scales.noteList(t, root) + "  ·  cyan = tonique, rangées sombres = hors gamme",
+            fontSize = 10.sp,
+            color = Dim,
+        )
+    }
+    if (open.value) {
+        com.rg406v.sampler.audio.Scales.names.withIndex().chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for ((i, n) in row) Chip(n, i == t, Modifier.weight(1f)) { eng.scale.value = i.toFloat() }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+        Text(
+            "la gamme choisie sert aussi au clavier des pads : le pad 1 joue la tonique, les suivants montent dans la gamme. " +
+                "« snap » ramène les notes jouées ou posées sur la gamme.",
+            fontSize = 10.sp,
+            color = Dim,
+        )
+    }
+}
+
+@Composable
+private fun ArpSection(state: SamplerState) {
+    val arp = state.engine.arp
+    SectionTitle("arpégiateur")
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Pill(if (arp.on) "arp : on" else "arp : off", arp.on, AccFm) { arp.on = !arp.on; if (!arp.on) arp.clear() }
+        Pill("latch", arp.latch, AccGrain) { arp.latch = !arp.latch; if (!arp.latch) arp.clear() }
+        Text(
+            "tiens des touches du piano : l'arp joue les notes en boucle sur le pad ${state.selectedPad + 1}.",
+            fontSize = 10.sp,
+            color = Dim,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    if (arp.on) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            arp.mode.labels?.forEachIndexed { i, t ->
+                Pill(t, arp.mode.value.toInt() == i, AccFx, hPad = 8) { arp.mode.value = i.toFloat() }
+            }
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            arp.rate.labels?.forEachIndexed { i, t ->
+                Pill(t, arp.rate.value.toInt() == i, AccSampler, hPad = 8) { arp.rate.value = i.toFloat() }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Knob(arp.octaves, AccGrain, knobSize = 40.dp)
+            Knob(arp.gate, AccGrain, knobSize = 40.dp)
+        }
     }
 }

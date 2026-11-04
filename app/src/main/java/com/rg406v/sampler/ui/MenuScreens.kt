@@ -1,6 +1,9 @@
 package com.rg406v.sampler.ui
 
 import androidx.compose.foundation.background
+import com.rg406v.sampler.audio.StyleKits
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -129,6 +132,22 @@ internal fun KitsPanel(state: SamplerState) {
                     fontSize = 10.sp,
                     color = Dim,
                 )
+                SectionTitle("kits par style")
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    StyleKits.styles.forEachIndexed { k, n ->
+                        Pill(n.lowercase(), state.styleSel == k, AccFx, hPad = 8) { state.styleSel = k }
+                    }
+                }
+                val styleKits = StyleKits.kitsOf(StyleKits.styles[state.styleSel.coerceIn(0, StyleKits.styles.size - 1)])
+                styleKits.chunked(2).forEach { rowKits ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        rowKits.forEach { d ->
+                            Pill("${d.name} · ${d.bpm}", state.currentKit == d.name, AccSampler, Modifier.weight(1f), hPad = 4) { state.applyStyleKit(d) }
+                        }
+                        if (rowKits.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+                Text("kits synthétisés à la demande (quelques secondes). le tempo n'est pas modifié : le bpm est une indication.", fontSize = 10.sp, color = Dim)
                 SectionTitle("enregistrer le kit actuel")
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     NameField(kitName, { kitName = it }, Modifier.weight(1f))
@@ -151,7 +170,7 @@ internal fun KitsPanel(state: SamplerState) {
 
             1 -> {
                 Text(
-                    "pad cible : ${state.selectedPad + 1} (${if (pad.mode.value.toInt() == 2) pad.fmName else pad.sampleName})",
+                    "pad cible : ${state.selectedPad + 1} (${pad.displayName})",
                     fontSize = 11.sp,
                     color = TextHi,
                 )

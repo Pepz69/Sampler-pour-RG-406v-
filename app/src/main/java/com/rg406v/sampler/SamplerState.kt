@@ -18,6 +18,9 @@ import com.rg406v.sampler.audio.AudioEngine
 import com.rg406v.sampler.audio.BitcrusherFx
 import com.rg406v.sampler.audio.ChorusFx
 import com.rg406v.sampler.audio.AutoRec
+import com.rg406v.sampler.audio.Scales
+import com.rg406v.sampler.audio.Wavetables
+import com.rg406v.sampler.audio.StyleKits
 import com.rg406v.sampler.audio.FilterverseFx
 import com.rg406v.sampler.audio.Lane
 import com.rg406v.sampler.audio.ManipulatorFx
@@ -292,7 +295,7 @@ class SamplerState(private val ctx: Context) {
         p.end.value = 1f
         p.sample = s
         p.sampleName = s.name
-        if (p.mode.value.toInt() == 2) p.mode.value = 0f
+        if (p.mode.value.toInt() >= 2) p.mode.value = 0f
         p.clearHistory()
         p.sampleVersion++
         toast("Pad ${i + 1} : enregistrement prêt")
@@ -334,14 +337,43 @@ class SamplerState(private val ctx: Context) {
     }
 
     /** Piano roll : joue le pad sélectionné à une hauteur donnée (demi-tons). */
+    var pianoSnap by mutableStateOf(false)
+    private var arpDown = false
+
+    fun scaleMask(): BooleanArray? = Scales.mask(engine.scale.value.toInt())
+
+    /** Ramène une note sur la note de la gamme la plus proche (si « snap » est actif). */
+    fun snap(semis: Int): Int {
+        if (!pianoSnap) return semis
+        val m = scaleMask() ?: return semis
+        val r = engine.scaleRoot.value.toInt()
+        fun ok(x: Int) = m[Math.floorMod(x - r, 12)]
+        if (ok(semis)) return semis
+        for (d in 1..6) {
+            if (ok(semis - d)) return semis - d
+            if (ok(semis + d)) return semis + d
+        }
+        return semis
+    }
+
     fun noteDown(semis: Int) {
         val i = selectedPad
+        if (engine.arp.on) {
+            engine.arp.press(semis, i)
+            arpDown = true
+            return
+        }
         padActive[i] = true
         engine.noteOn(i, semis.toFloat())
         if (seq.recArmed && seq.playing) seq.recordHit(i, if (semis == 0) Float.NaN else semis.toFloat())
     }
 
-    fun noteUp() = padUp(selectedPad)
+    fun noteUp(semis: Int = 0) {
+        if (arpDown) {
+            engine.arp.release(semis)
+            if (!engine.arp.on) arpDown = false
+        } else padUp(selectedPad)
+    }
 
     fun releaseAll() {
         for (i in 0 until 16) if (padActive[i]) padUp(i)
@@ -350,6 +382,7 @@ class SamplerState(private val ctx: Context) {
 
     fun panic() {
         engine.stopAll()
+        engine.arp.clear()
         engine.punch.releaseAll()
         for (i in 0 until 16) padActive[i] = false
         for (k in 0 until 12) punchActive[k] = false
@@ -382,7 +415,7 @@ class SamplerState(private val ctx: Context) {
                     p.end.value = 1f
                     p.sample = loaded
                     p.sampleName = loaded.name
-                    if (p.mode.value.toInt() == 2) p.mode.value = 0f
+                    if (p.mode.value.toInt() >= 2) p.mode.value = 0f
                     p.clearHistory()
                     p.sampleVersion++
                     toast("Pad ${i + 1} : ${loaded.name}")
@@ -449,6 +482,7 @@ class SamplerState(private val ctx: Context) {
                 when (p.mode.value.toInt()) {
                     1 -> listOf(p.gPos, p.gSize, p.gDens, p.gSpray)
                     2 -> listOf(p.fmRatio, p.fmIndex, p.fmFeedback, p.fmModDecay)
+                    3 -> listOf(p.wtPos, p.wtWarp, p.wtUni, p.wtDetune)
                     else -> listOf(p.pitch, p.volume, p.start, p.end)
                 }
             }
@@ -668,6 +702,40 @@ class SamplerState(private val ctx: Context) {
         currentKit = builtinNames[k]
     }
 
+    var styleSel by mutableIntStateOf(0)
+
+    fun applyStyleKit(def: StyleKits.KitDef) {
+        toast("Fabrication de « ${def.name} »...")
+        Thread {
+            val sounds = try { StyleKits.build(def) } catch (e: Exception) { toast("Échec de la fabrication du kit"); return@Thread }
+            val sp = def.spec
+            if (sp.wt >= 0) Wavetables.prefetch(sp.wt)
+            ui.post {
+                engine.stopAll()
+                for (i in 0 until 16) {
+                    val p = pads[i]
+                    p.reset()
+                    p.sample = sounds[i]
+                    p.sampleName = sounds[i].name
+                    p.start.value = 0f
+                    p.end.value = 1f
+                    p.clearHistory()
+                    p.sampleVersion++
+                }
+                for (i in intArrayOf(8, 9, 10, 12)) { pads[i].loop = true; pads[i].gate = true; pads[i].release.value = 0.12f }
+                pads[3].gate = false
+                if (sp.wt >= 0) pads[12].apply {
+                    mode.value = 3f; gate = true; loop = false
+                    wtTable.value = sp.wt.toFloat(); wtPos.value = sp.wtPos; wtUni.value = sp.wtUni.toFloat()
+                    wtDetune.value = sp.wtDet; wtSub.value = sp.wtSub
+                    pitch.value = -12f; sustain.value = 0.8f; release.value = 0.25f
+                }
+                currentKit = def.name
+                toast("Kit « ${def.name} » chargé (${def.bpm} bpm conseillés)")
+            }
+        }.start()
+    }
+
     fun applyBuiltin(k: Int) {
         Thread {
             val kit = DefaultSounds.kits.getOrNull(k) ?: return@Thread
@@ -737,7 +805,7 @@ class SamplerState(private val ctx: Context) {
         p.sampleName = s.name
         p.start.value = 0f
         p.end.value = 1f
-        if (p.mode.value.toInt() == 2) p.mode.value = 0f
+        if (p.mode.value.toInt() >= 2) p.mode.value = 0f
         p.sampleVersion++
         engine.noteOn(i)
         ui.postDelayed({ engine.noteOff(i) }, 500)
@@ -884,7 +952,7 @@ class SamplerState(private val ctx: Context) {
                         t.start.value = 0f
                         t.end.value = 1f
                         t.sampleVersion++
-                        if (t.mode.value.toInt() == 2) t.mode.value = 0f
+                        if (t.mode.value.toInt() >= 2) t.mode.value = 0f
                     }
                     editing = false
                     toast("Découpé sur les pads ${i0 + 1} à ${i0 + parts.size}")
@@ -983,6 +1051,7 @@ class SamplerState(private val ctx: Context) {
         val o = JSONObject()
         o.put("master", engine.master.value.toDouble())
         o.put("scale", engine.scale.value.toDouble())
+        o.put("root", engine.scaleRoot.value.toDouble())
         o.put("punch", engine.punch.mix.value.toDouble())
         o.put("ingain", inGain.value.toDouble())
         o.put("block", engine.blockSize)
@@ -1031,7 +1100,8 @@ class SamplerState(private val ctx: Context) {
         try {
             ui.post {
                 engine.master.value = o.optDouble("master", 0.8).toFloat()
-                engine.scale.value = o.optDouble("scale", 0.0).toFloat()
+                engine.scale.value = o.optDouble("scale", 0.0).toFloat().coerceIn(0f, engine.scale.max)
+                engine.scaleRoot.value = o.optDouble("root", 0.0).toFloat().coerceIn(0f, 11f)
                 engine.punch.mix.value = o.optDouble("punch", 1.0).toFloat()
                 inGain.value = o.optDouble("ingain", 1.0).toFloat().coerceIn(inGain.min, inGain.max)
                 engine.blockSize = o.optInt("block", 256)

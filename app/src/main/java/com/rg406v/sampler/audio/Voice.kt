@@ -65,6 +65,13 @@ class Voice(private val pad: PadParams) {
     private var scanPos = 0f
     private var seed = 22222 + pad.index * 7919
 
+    private val wtPh = DoubleArray(7)
+    private val wtInc = DoubleArray(7)
+    private val wtGl = FloatArray(7)
+    private val wtGr = FloatArray(7)
+    private var wtSubPh = 0.0
+    private var wtLfo = 0.0
+
     private var phC = 0.0
     private var phM = 0.0
     private var lastM = 0f
@@ -111,11 +118,16 @@ class Voice(private val pad: PadParams) {
 
         if (trig) {
             trig = false
-            if (mode == 2 || s != null) {
+            if (mode >= 2 || s != null) {
                 when (mode) {
                     0 -> pos = (startFrac() * s!!.data.size).toDouble()
                     1 -> { java.util.Arrays.fill(gLen, 0); gCount = 0f; scanPos = 0f }
-                    else -> { phC = 0.0; phM = 0.0; lastM = 0f; modEnv = 1f }
+                    2 -> { phC = 0.0; phM = 0.0; lastM = 0f; modEnv = 1f }
+                    else -> {
+                        for (k in 0 until 7) wtPh[k] = rnd().toDouble()
+                        wtSubPh = 0.0
+                        wtLfo = 0.0
+                    }
                 }
                 stage = ATTACK
             }
@@ -128,13 +140,13 @@ class Voice(private val pad: PadParams) {
             }
         }
         if (stage == IDLE) return
-        if (mode != 2 && s == null) return
+        if (mode < 2 && s == null) return
 
         pAtk = 1f / (pad.attack.value * sr)
         pSus = pad.sustain.value
         pDec = (1f - pSus) / (pad.decay.value * sr)
         relSamples = max(pad.release.value, 0.002f) * sr
-        pAuto = mode == 2 && !pad.gate
+        pAuto = mode >= 2 && !pad.gate
 
         val vol = pad.volume.value * ovVol
         val panV = if (ovPan.isNaN()) pad.pan.value else ovPan
@@ -145,7 +157,8 @@ class Voice(private val pad: PadParams) {
         when (mode) {
             0 -> renderSampler(l, r, off, n, sr, s!!, gl, gr)
             1 -> renderGranular(l, r, off, n, sr, s!!, vol, panV)
-            else -> renderFm(l, r, off, n, sr, gl, gr)
+            2 -> renderFm(l, r, off, n, sr, gl, gr)
+            else -> renderWt(l, r, off, n, sr, vol, panV)
         }
     }
 
@@ -281,5 +294,76 @@ class Voice(private val pad: PadParams) {
         phM = pm
         lastM = lm
         modEnv = me
+    }
+
+    private fun renderWt(l: FloatArray, r: FloatArray, off: Int, n: Int, sr: Int, vol: Float, panBase: Float) {
+        val tbl = Wavetables.get(pad.wtTable.value.toInt()) ?: return
+        val f = 220.0 * 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0)
+        val uni = pad.wtUni.value.toInt().coerceIn(1, 7)
+        val det = pad.wtDetune.value
+        val spread = pad.wtSpread.value
+        val warp = pad.wtWarp.value
+        val sub = pad.wtSub.value
+        val posBase = pad.wtPos.value
+        val depth = pad.wtDepth.value
+        val lfoInc = pad.wtMotion.value.toDouble() / sr
+        val data = tbl.mip[if (f < 300.0) 0 else if (f < 1200.0) 1 else 2]
+        val norm = 0.5f / sqrt(uni.toFloat())
+
+        for (k in 0 until uni) {
+            val u = if (uni == 1) 0f else (k / (uni - 1f)) * 2f - 1f
+            wtInc[k] = f * 2.0.pow((u * det / 1200f).toDouble()) / sr
+            val pn = (panBase + u * spread).coerceIn(-1f, 1f)
+            val a = (pn + 1f) * (PI.toFloat() / 4f)
+            wtGl[k] = cos(a) * vol * norm
+            wtGr[k] = sin(a) * vol * norm
+        }
+        val subInc = f / 2.0 / sr
+        val size = Wavetables.SIZE
+        val last = Wavetables.FRAMES - 1
+
+        for (i in 0 until n) {
+            if (!stepEnv()) break
+            wtLfo += lfoInc
+            if (wtLfo >= 1.0) wtLfo -= 1.0
+            val pos = (posBase + depth * sin(TWO_PI * wtLfo).toFloat()).coerceIn(0f, 1f)
+            val fp = pos * last
+            val fi = fp.toInt().coerceIn(0, last)
+            val ff = fp - fi
+            val b0 = fi * size
+            val b1 = (if (fi + 1 > last) last else fi + 1) * size
+            var sumL = 0f
+            var sumR = 0f
+            for (k in 0 until uni) {
+                var ph = wtPh[k]
+                var q = ph
+                if (warp > 0f) {
+                    q = ph * (1.0 + warp * 7.0)
+                    q -= floor(q)
+                }
+                val x = q * size
+                val i0 = x.toInt() and (size - 1)
+                val fr = (x - floor(x)).toFloat()
+                val i1 = (i0 + 1) and (size - 1)
+                val a0 = data[b0 + i0]
+                val a1 = data[b1 + i0]
+                val s0 = a0 + (data[b0 + i1] - a0) * fr
+                val s1 = a1 + (data[b1 + i1] - a1) * fr
+                val s = s0 + (s1 - s0) * ff
+                sumL += s * wtGl[k]
+                sumR += s * wtGr[k]
+                ph += wtInc[k]
+                if (ph >= 1.0) ph -= 1.0
+                wtPh[k] = ph
+            }
+            var sb = 0f
+            if (sub > 0f) {
+                sb = sin(TWO_PI * wtSubPh).toFloat() * sub * 0.4f * vol
+                wtSubPh += subInc
+                if (wtSubPh >= 1.0) wtSubPh -= 1.0
+            }
+            l[off + i] += (sumL + sb) * env
+            r[off + i] += (sumR + sb) * env
+        }
     }
 }
