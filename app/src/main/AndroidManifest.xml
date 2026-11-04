@@ -12,6 +12,8 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:label="RGGGSAMPLER4666"
+        android:appCategory="game"
+        android:hardwareAccelerated="true"
         android:theme="@style/Theme.Sampler">
 
         <activity

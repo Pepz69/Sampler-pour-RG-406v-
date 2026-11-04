@@ -143,6 +143,7 @@ object Wavetables {
         if (cache.containsKey(k)) return
         if (building.add(k)) {
             Thread {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
                 try {
                     cache[k] = build(k)
                 } finally {

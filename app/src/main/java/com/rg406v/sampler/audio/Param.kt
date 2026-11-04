@@ -33,13 +33,13 @@ class Param(
         get() {
             if (modDelta != 0f) return effCache
             val o = ovr
-            return if (o.isNaN()) value else o
+            return if (o.isNaN()) raw else o
         }
 
     fun setMod(delta: Float) {
         modDelta = delta
         if (delta == 0f) return
-        val b0 = if (ovr.isNaN()) value else ovr
+        val b0 = if (ovr.isNaN()) raw else ovr
         val base = if (log) ln(b0 / min) / ln(max / min) else (b0 - min) / (max - min)
         val c = (base + delta).coerceIn(0f, 1f)
         var v = if (log) min * (max / min).pow(c) else min + c * (max - min)
@@ -48,17 +48,21 @@ class Param(
     }
     private val st = mutableFloatStateOf(default)
 
+    /** Copie de `value` lisible sans passer par le système d'états de Compose (thread audio). */
+    @Volatile private var raw = default
+
     /** Valeur réglée (UI, sticks). Toute écriture est vue par l'enregistreur de mouvements. */
     var value: Float
         get() = st.floatValue
         set(v) {
             st.floatValue = v
+            raw = v
             touchNs = System.nanoTime()
             AutoRec.touch(this, v)
         }
 
     /** Écriture sans déclencher l'enregistrement (lecture d'une automation affichée sur le bouton). */
-    fun setSilently(v: Float) { st.floatValue = v }
+    fun setSilently(v: Float) { st.floatValue = v; raw = v }
 
     // ---- automation par enregistrement de mouvements
     @Volatile var ovr = Float.NaN

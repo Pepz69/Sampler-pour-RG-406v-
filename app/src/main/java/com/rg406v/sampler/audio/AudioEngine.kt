@@ -6,6 +6,8 @@ import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioDeviceInfo
 import android.media.AudioTrack
+import android.os.Build
+import android.os.PerformanceHintManager
 import android.os.Process
 import kotlin.math.abs
 import kotlin.math.max
@@ -16,7 +18,7 @@ import kotlin.math.tanh
  * sample près), applique les effets des pads, la chaîne master, les effets punch-in, mesure les niveaux
  * et écrit dans un AudioTrack float stéréo. Bloc et tampon sont réglables en direct.
  */
-class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
+class AudioEngine(private val ctx: Context, private val pads: List<PadParams>) {
 
     companion object {
         const val MAX_BLOCK = 2048
@@ -40,6 +42,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
 
     // ---- réglages de latence / anti-craquement (appliqués en direct)
     @Volatile var blockSize = 256
+    @Volatile var burstFrames = 0
     @Volatile var bufferBlocks = 2
     @Volatile var autoBuffer = true
     @Volatile var perfMode = 0 // 0 faible latence, 1 normal, 2 économie
@@ -57,6 +60,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
 
     // ---- diagnostic
     @Volatile var underruns = 0
+    @Volatile var dspErrors = 0
     @Volatile var loadPercent = 0f
     @Volatile var bufferFrames = 0
 
@@ -87,6 +91,14 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
     init {
         val am = ctx.getSystemService(AudioManager::class.java)
         sampleRate = am?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE)?.toIntOrNull() ?: 48000
+        // bloc = multiple de la rafale native du matériel (pas de ré-découpage dans le mixeur Android)
+        val burst = am?.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER)?.toIntOrNull() ?: 0
+        burstFrames = burst
+        if (burst in 32..1024) {
+            var b = burst
+            while (b < 192) b += burst
+            blockSize = b
+        }
     }
 
     val seq = Sequencer(sampleRate)
@@ -185,9 +197,17 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
             return
         }
 
+        var hint: PerformanceHintManager.Session? = null
         try {
             track.play()
             val startNs = System.nanoTime()
+            if (Build.VERSION.SDK_INT >= 31) {
+                try {
+                    val phm = ctx.getSystemService(PerformanceHintManager::class.java)
+                    hint = phm?.createHintSession(intArrayOf(Process.myTid()), (blockSize * 1e9 / sampleRate * 0.6).toLong())
+                } catch (e: Throwable) { hint = null }
+            }
+            var t1 = 0L
             var lastUnder = 0
             var lastBlk = -1
             var lastBuf = -1
@@ -218,6 +238,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
                 }
 
                 val t0 = System.nanoTime()
+                try {
                 run {
                     val playing = seq.playing
                     if (playing && !autoWasPlaying) autoBeat = 0f
@@ -334,7 +355,15 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
                 if (pkL > outPeakL) outPeakL = pkL
                 if (pkR > outPeakR) outPeakR = pkR
                 if (pkL >= 1f || pkR >= 1f) clipHit = true
-                val t1 = System.nanoTime()
+                } catch (e: Throwable) {
+                    // un effet qui plante ne doit jamais tuer le thread audio
+                    java.util.Arrays.fill(out, 0f)
+                    dspErrors++
+                }
+                t1 = System.nanoTime()
+                if (Build.VERSION.SDK_INT >= 31) {
+                    try { hint?.reportActualWorkDuration(t1 - t0) } catch (e: Throwable) { }
+                }
 
                 val written = track.write(out, 0, blk * 2, AudioTrack.WRITE_BLOCKING)
                 if (written < 0) break
@@ -352,6 +381,7 @@ class AudioEngine(ctx: Context, private val pads: List<PadParams>) {
                 }
             }
         } finally {
+            if (Build.VERSION.SDK_INT >= 31) { try { hint?.close() } catch (e: Throwable) { } }
             try { track.stop() } catch (e: Exception) { }
             track.release()
         }

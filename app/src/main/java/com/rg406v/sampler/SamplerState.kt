@@ -405,6 +405,7 @@ class SamplerState(private val ctx: Context) {
 
     fun loadFromUri(i: Int, uri: Uri) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             val loaded = SampleLoader.load(ctx, uri)
             if (loaded == null) {
                 toast("Format non supporté (WAV 16 bits, MP3, OGG, FLAC, AAC)")
@@ -707,6 +708,7 @@ class SamplerState(private val ctx: Context) {
     fun applyStyleKit(def: StyleKits.KitDef) {
         toast("Fabrication de « ${def.name} »...")
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             val sounds = try { StyleKits.build(def) } catch (e: Exception) { toast("Échec de la fabrication du kit"); return@Thread }
             val sp = def.spec
             if (sp.wt >= 0) Wavetables.prefetch(sp.wt)
@@ -738,6 +740,7 @@ class SamplerState(private val ctx: Context) {
 
     fun applyBuiltin(k: Int) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             val kit = DefaultSounds.kits.getOrNull(k) ?: return@Thread
             ui.post {
                 applyBuiltinNow(k, kit.sounds)
@@ -748,6 +751,7 @@ class SamplerState(private val ctx: Context) {
 
     fun saveKitAs(name: String) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 storage.saveKit(name, pads)
                 ui.post { currentKit = name }
@@ -761,6 +765,7 @@ class SamplerState(private val ctx: Context) {
 
     fun loadKitNamed(name: String) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             engine.stopAll()
             val ok = storage.loadKit(name, pads)
             if (ok) { ui.post { currentKit = name }; toast("Kit « $name » chargé") } else toast("Kit introuvable")
@@ -773,6 +778,7 @@ class SamplerState(private val ctx: Context) {
 
     fun saveSeqAs(name: String) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 storage.saveSeq(name, seq.toJson())
                 refreshLists()
@@ -785,6 +791,7 @@ class SamplerState(private val ctx: Context) {
 
     fun loadSeqNamed(name: String) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             val j = storage.loadSeq(name)
             if (j != null && seq.fromJson(j)) {
                 ui.post { lockStep = -1 }
@@ -873,6 +880,7 @@ class SamplerState(private val ctx: Context) {
         if (editing) { toast("Traitement en cours..."); return }
         editing = true
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 val r = work(s.data, reg[0], reg[1], s.sampleRate)
                 ui.post {
@@ -940,6 +948,7 @@ class SamplerState(private val ctx: Context) {
         if (editing) { toast("Traitement en cours..."); return }
         editing = true
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 val parts = SampleEdit.slice(s.data, reg[0], reg[1], n)
                 ui.post {
@@ -1104,7 +1113,7 @@ class SamplerState(private val ctx: Context) {
                 engine.scaleRoot.value = o.optDouble("root", 0.0).toFloat().coerceIn(0f, 11f)
                 engine.punch.mix.value = o.optDouble("punch", 1.0).toFloat()
                 inGain.value = o.optDouble("ingain", 1.0).toFloat().coerceIn(inGain.min, inGain.max)
-                engine.blockSize = o.optInt("block", 256)
+                engine.blockSize = o.optInt("block", engine.blockSize)
                 engine.bufferBlocks = o.optInt("bufblocks", 2)
                 engine.autoBuffer = o.optBoolean("auto", true)
                 val perf = o.optInt("perf", 0)
@@ -1137,6 +1146,7 @@ class SamplerState(private val ctx: Context) {
     fun saveProjectAs(name: String) {
         if (!ready) return
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 synchronized(saveLock) {
                     storage.saveKit(name, pads, null, storage.projectsRoot)
@@ -1157,6 +1167,7 @@ class SamplerState(private val ctx: Context) {
         releaseAll()
         engine.stopAll()
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 val txt = storage.readProjectState(name)
                 if (txt == null || !storage.loadKit(name, pads, storage.projectsRoot)) {
@@ -1174,6 +1185,7 @@ class SamplerState(private val ctx: Context) {
 
     fun exportProjectTo(name: String, uri: android.net.Uri) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 val ok = synchronized(saveLock) {
                     ctx.contentResolver.openOutputStream(uri)?.use { storage.exportProjectZip(name, it) } ?: false
@@ -1187,6 +1199,7 @@ class SamplerState(private val ctx: Context) {
 
     fun importProjectFrom(uri: android.net.Uri) {
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
                 val n = ctx.contentResolver.openInputStream(uri)?.use { storage.importProjectZip(it) }
                 if (n == null) toast("Ce fichier n'est pas un projet") else {
@@ -1342,6 +1355,7 @@ class SamplerState(private val ctx: Context) {
         // Banque "classic" disponible tout de suite, puis restauration de la dernière session.
         applyBuiltinNow(0, DefaultSounds.build())
         Thread {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             DefaultSounds.kits // prépare les autres banques
             restoreState()
             ready = true

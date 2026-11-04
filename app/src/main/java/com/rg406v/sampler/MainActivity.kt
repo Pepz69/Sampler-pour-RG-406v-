@@ -99,6 +99,11 @@ class MainActivity : ComponentActivity() {
         state.requestMic = { micPermission.launch(Manifest.permission.RECORD_AUDIO) }
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // évite le bridage thermique du processeur pendant les longues sessions
+        try {
+            val pm = getSystemService(android.os.PowerManager::class.java)
+            if (pm != null && pm.isSustainedPerformanceModeSupported) window.setSustainedPerformanceMode(true)
+        } catch (e: Throwable) { }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).let {
             it.hide(WindowInsetsCompat.Type.systemBars())

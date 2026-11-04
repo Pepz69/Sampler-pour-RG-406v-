@@ -82,7 +82,7 @@ class Voice(private val pad: PadParams) {
 
     private fun startFrac(): Float {
         val o = ovStart
-        return if (o.isNaN()) pad.start.value else o
+        return if (o.isNaN()) pad.start.eff else o
     }
 
     private fun rnd(): Float {
@@ -113,7 +113,7 @@ class Voice(private val pad: PadParams) {
             stage = IDLE; env = 0f
             return
         }
-        val mode = pad.mode.value.toInt()
+        val mode = pad.mode.eff.toInt()
         val s = pad.sample
 
         if (trig) {
@@ -135,21 +135,21 @@ class Voice(private val pad: PadParams) {
         if (rel) {
             rel = false
             if (stage != IDLE && stage != RELEASE) {
-                relStep = env / (max(pad.release.value, 0.002f) * sr)
+                relStep = env / (max(pad.release.eff, 0.002f) * sr)
                 stage = RELEASE
             }
         }
         if (stage == IDLE) return
         if (mode < 2 && s == null) return
 
-        pAtk = 1f / (pad.attack.value * sr)
-        pSus = pad.sustain.value
-        pDec = (1f - pSus) / (pad.decay.value * sr)
-        relSamples = max(pad.release.value, 0.002f) * sr
+        pAtk = 1f / (pad.attack.eff * sr)
+        pSus = pad.sustain.eff
+        pDec = (1f - pSus) / (pad.decay.eff * sr)
+        relSamples = max(pad.release.eff, 0.002f) * sr
         pAuto = mode >= 2 && !pad.gate
 
-        val vol = pad.volume.value * ovVol
-        val panV = if (ovPan.isNaN()) pad.pan.value else ovPan
+        val vol = pad.volume.eff * ovVol
+        val panV = if (ovPan.isNaN()) pad.pan.eff else ovPan
         val ang = (panV + 1f) * (PI.toFloat() / 4f)
         val gl = cos(ang) * vol
         val gr = sin(ang) * vol
@@ -168,9 +168,9 @@ class Voice(private val pad: PadParams) {
         if (len < 2) { stage = IDLE; env = 0f; return }
 
         val startPos = (startFrac() * len).toInt().coerceIn(0, len - 2)
-        val endPos = (pad.end.value * len).toInt().coerceIn(startPos + 1, len)
+        val endPos = (pad.end.eff * len).toInt().coerceIn(startPos + 1, len)
         val loop = pad.loop
-        val rate = 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0) * s.sampleRate / sr
+        val rate = 2.0.pow((pad.pitch.eff + keyOffset + ovPitch) / 12.0) * s.sampleRate / sr
 
         var p = pos.coerceAtLeast(startPos.toDouble())
         if (p >= endPos) {
@@ -205,19 +205,19 @@ class Voice(private val pad: PadParams) {
         if (len < 2) { stage = IDLE; env = 0f; return }
 
         val startPos = (startFrac() * len).toInt().coerceIn(0, len - 2)
-        val endPos = (pad.end.value * len).toInt().coerceIn(startPos + 1, len)
+        val endPos = (pad.end.eff * len).toInt().coerceIn(startPos + 1, len)
         val region = (endPos - startPos).toFloat()
 
-        val sizeSamp = max(32, (pad.gSize.value * 0.001f * sr).toInt())
-        val dens = pad.gDens.value
+        val sizeSamp = max(32, (pad.gSize.eff * 0.001f * sr).toInt())
+        val dens = pad.gDens.eff
         val interval = sr / dens
-        val spray = pad.gSpray.value
-        val detune = pad.gDetune.value
-        val pos0 = pad.gPos.value
-        val baseRate = 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0) * s.sampleRate / sr
+        val spray = pad.gSpray.eff
+        val detune = pad.gDetune.eff
+        val pos0 = pad.gPos.eff
+        val baseRate = 2.0.pow((pad.pitch.eff + keyOffset + ovPitch) / 12.0) * s.sampleRate / sr
         val gain = vol / sqrt(max(1f, dens * sizeSamp / sr))
 
-        scanPos += pad.gScan.value * 0.2f * n / sr
+        scanPos += pad.gScan.eff * 0.2f * n / sr
         scanPos -= floor(scanPos)
 
         for (i in 0 until n) {
@@ -264,12 +264,12 @@ class Voice(private val pad: PadParams) {
     }
 
     private fun renderFm(l: FloatArray, r: FloatArray, off: Int, n: Int, sr: Int, gl: Float, gr: Float) {
-        val f = 220.0 * 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0)
+        val f = 220.0 * 2.0.pow((pad.pitch.eff + keyOffset + ovPitch) / 12.0)
         val incC = f / sr
-        val incM = incC * pad.fmRatio.value
-        val idx = pad.fmIndex.value
-        val fb = pad.fmFeedback.value * 3f
-        val mdec = exp(-1.0 / (sr * pad.fmModDecay.value)).toFloat()
+        val incM = incC * pad.fmRatio.eff
+        val idx = pad.fmIndex.eff
+        val fb = pad.fmFeedback.eff * 3f
+        val mdec = exp(-1.0 / (sr * pad.fmModDecay.eff)).toFloat()
 
         var pc = phC
         var pm = phM
@@ -297,16 +297,16 @@ class Voice(private val pad: PadParams) {
     }
 
     private fun renderWt(l: FloatArray, r: FloatArray, off: Int, n: Int, sr: Int, vol: Float, panBase: Float) {
-        val tbl = Wavetables.get(pad.wtTable.value.toInt()) ?: return
-        val f = 220.0 * 2.0.pow((pad.pitch.value + keyOffset + ovPitch) / 12.0)
-        val uni = pad.wtUni.value.toInt().coerceIn(1, 7)
-        val det = pad.wtDetune.value
-        val spread = pad.wtSpread.value
-        val warp = pad.wtWarp.value
-        val sub = pad.wtSub.value
-        val posBase = pad.wtPos.value
-        val depth = pad.wtDepth.value
-        val lfoInc = pad.wtMotion.value.toDouble() / sr
+        val tbl = Wavetables.get(pad.wtTable.eff.toInt()) ?: return
+        val f = 220.0 * 2.0.pow((pad.pitch.eff + keyOffset + ovPitch) / 12.0)
+        val uni = pad.wtUni.eff.toInt().coerceIn(1, 7)
+        val det = pad.wtDetune.eff
+        val spread = pad.wtSpread.eff
+        val warp = pad.wtWarp.eff
+        val sub = pad.wtSub.eff
+        val posBase = pad.wtPos.eff
+        val depth = pad.wtDepth.eff
+        val lfoInc = pad.wtMotion.eff.toDouble() / sr
         val data = tbl.mip[if (f < 300.0) 0 else if (f < 1200.0) 1 else 2]
         val norm = 0.5f / sqrt(uni.toFloat())
 
@@ -322,16 +322,22 @@ class Voice(private val pad: PadParams) {
         val size = Wavetables.SIZE
         val last = Wavetables.FRAMES - 1
 
+        var fi = 0
+        var ff = 0f
+        var b0 = 0
+        var b1 = 0
         for (i in 0 until n) {
             if (!stepEnv()) break
             wtLfo += lfoInc
             if (wtLfo >= 1.0) wtLfo -= 1.0
-            val pos = (posBase + depth * sin(TWO_PI * wtLfo).toFloat()).coerceIn(0f, 1f)
-            val fp = pos * last
-            val fi = fp.toInt().coerceIn(0, last)
-            val ff = fp - fi
-            val b0 = fi * size
-            val b1 = (if (fi + 1 > last) last else fi + 1) * size
+            if ((i and 15) == 0) {
+                val pos = (posBase + depth * sin(TWO_PI * wtLfo).toFloat()).coerceIn(0f, 1f)
+                val fp = pos * last
+                fi = fp.toInt().coerceIn(0, last)
+                ff = fp - fi
+                b0 = fi * size
+                b1 = (if (fi + 1 > last) last else fi + 1) * size
+            }
             var sumL = 0f
             var sumR = 0f
             for (k in 0 until uni) {
