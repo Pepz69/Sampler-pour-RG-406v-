@@ -73,6 +73,7 @@ private fun SavedRow(
     onLoad: () -> Unit,
     onDelete: () -> Unit,
     acc: Accent,
+    onExport: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(10.dp)
     Row(
@@ -87,6 +88,7 @@ private fun SavedRow(
     ) {
         Text(name, fontSize = 12.sp, color = TextHi, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         Pill("charger", false, acc, onClick = onLoad)
+        if (onExport != null) Pill("exporter", false, AccFx, onClick = onExport)
         Pill(if (confirming) "sûr ?" else "suppr", confirming, AccFm, onClick = onDelete)
     }
 }
@@ -225,6 +227,15 @@ internal fun KitsPanel(state: SamplerState) {
                     fontSize = 10.sp,
                     color = Dim,
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Pill("importer un projet (.zip)", false, AccFx) { state.requestImport() }
+                }
+                Text(
+                    "exporter : touche « exporter » sur un projet et choisis un dossier (Documents, par exemple). " +
+                        "le fichier .zip survit à une désinstallation et se copie sur un ordinateur.",
+                    fontSize = 10.sp,
+                    color = Dim,
+                )
                 SectionTitle("mes projets")
                 if (state.projList.isEmpty()) Text("aucun projet enregistré", fontSize = 11.sp, color = Dim)
                 state.projList.forEach { n ->
@@ -235,6 +246,7 @@ internal fun KitsPanel(state: SamplerState) {
                             if (confirm == "p:$n") { state.deleteProject(n); confirm = "" } else confirm = "p:$n"
                         },
                         acc = AccFm,
+                        onExport = { state.requestExport(n) },
                     )
                 }
             }

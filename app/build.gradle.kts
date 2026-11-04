@@ -15,11 +15,24 @@ android {
         versionName = "1.0"
     }
 
+    // Clé fixe (fichier rggg-release.jks) : les mises à jour s'installent par-dessus l'ancienne version.
+    val fixedKey = file("rggg-release.jks")
+    signingConfigs {
+        if (fixedKey.exists()) {
+            create("rggg") {
+                storeFile = fixedKey
+                storePassword = "rggg4666"
+                keyAlias = "rggg"
+                keyPassword = "rggg4666"
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             // Signé avec la clé debug : l'APK release s'installe directement, sans keystore.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("rggg") ?: signingConfigs.getByName("debug")
         }
     }
 

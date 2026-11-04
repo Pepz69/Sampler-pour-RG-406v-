@@ -105,13 +105,7 @@ internal fun modeAccent(mode: Int) = when (mode) {
 fun SamplerApp(state: SamplerState) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Violet)) {
         Surface(color = Bg, contentColor = TextHi, modifier = Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxSize().padding(10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                PadGrid(state, Modifier.weight(0.5f).fillMaxHeight())
-                RightPanel(state, Modifier.weight(0.5f).fillMaxHeight())
-            }
+            AppShell(state)
         }
     }
 }
@@ -225,99 +219,6 @@ internal fun PadButton(state: SamplerState, idx: Int, modifier: Modifier) {
                 color = if (active) Color.White.copy(alpha = 0.8f) else Cyan,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
             )
-        }
-    }
-}
-
-// ------------------------------------------------------------------ panneau de droite
-
-@Composable
-internal fun RightPanel(state: SamplerState, modifier: Modifier) {
-    val shape = RoundedCornerShape(16.dp)
-    val pad = state.pads[state.selectedPad]
-    val mode = pad.mode.value.toInt()
-    val n = state.selectedPad + 1
-    Column(
-        modifier.clip(shape).background(Module, shape).border(1.dp, Line, shape).padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("rg sampler", fontSize = 10.sp, color = Dim, letterSpacing = 1.sp)
-                Text(
-                    if (state.recording) "● rec → pad $n"
-                    else "pad $n · " + (if (mode == 2) pad.fmName else pad.sampleName),
-                    fontSize = 13.sp,
-                    color = if (state.recording) Pink else TextHi,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            val scale = state.engine.scale
-            Pill("♪ " + scale.display().lowercase(), scale.value > 0f, AccFx) {
-                scale.value = if (scale.value >= scale.max) scale.min else scale.value + 1f
-            }
-            Knob(state.engine.master, AccFx, knobSize = 34.dp, showValue = false)
-        }
-        MeterStrip(state)
-        TabBar(state)
-        when (state.tab) {
-            TAB_PAD -> PadPanel(state)
-            TAB_SEQ -> SeqPanel(state)
-            TAB_PIANO -> PianoPanel(state)
-            TAB_KITS -> KitsPanel(state)
-            TAB_PUNCH -> PunchPanel(state)
-            TAB_AUDIO -> AudioPanel(state)
-            else -> FxPanel(state)
-        }
-    }
-}
-
-@Composable
-internal fun TabBar(state: SamplerState) {
-    val outer = RoundedCornerShape(12.dp)
-    val n = state.selectedPad + 1
-    val labels = listOf("fx master", "pad $n", "fx pad $n", "seq", "piano", "kits", "punch", "audio")
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(34.dp)
-            .clip(outer)
-            .background(Bg, outer)
-            .border(1.dp, Line, outer)
-            .horizontalScroll(rememberScrollState())
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        labels.forEachIndexed { i, t ->
-            val on = state.tab == i
-            val inner = RoundedCornerShape(9.dp)
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .clip(inner)
-                    .then(
-                        if (on) Modifier.background(
-                            Brush.horizontalGradient(listOf(Violet.copy(alpha = 0.40f), Pink.copy(alpha = 0.40f))),
-                            inner,
-                        ) else Modifier
-                    )
-                    .clickable { state.tab = i }
-                    .padding(horizontal = 11.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    t,
-                    fontSize = 11.sp,
-                    fontWeight = if (on) FontWeight.Medium else FontWeight.Normal,
-                    color = if (on) TextHi else Dim,
-                    maxLines = 1,
-                )
-            }
         }
     }
 }

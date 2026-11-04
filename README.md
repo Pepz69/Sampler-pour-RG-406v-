@@ -86,3 +86,9 @@ Section « automation : mouvements » de chaque effet : « rec on », bouge un b
 
 ## Projets
 Onglet « kits » > « projets » : enregistrer / charger / supprimer un projet complet (sons, pads, effets, automations, patterns, tempo, réglages audio).
+
+## Mises à jour sans perdre ses projets
+`app/rggg-release.jks` est la clé de signature fixe. Garde ce fichier dans le dépôt : tant que la clé est la même, une nouvelle version s'installe par-dessus l'ancienne. Exporte aussi tes projets en .zip (onglet kits > projets > exporter).
+
+## Organisation de l'écran
+Bandeau du haut (projet, play, rec, tempo, patterns 1-8, niveaux) · rail de modes à gauche : PADS, SEQ (pas / piano), SAMPLE, MIXER, FX (master / pad / punch-in), PROJET, SETUP · Select = mode suivant, Select maintenu = Shift.

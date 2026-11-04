@@ -53,7 +53,22 @@ const val TAB_PIANO = 4
 const val TAB_KITS = 5
 const val TAB_PUNCH = 6
 const val TAB_AUDIO = 7
-const val NTABS = 8
+const val TAB_PADS = 8
+const val TAB_MIX = 9
+const val NTABS = 10
+
+/** Un mode = une entrée du rail de gauche, avec une ou plusieurs sous-pages (ce sont les anciens onglets). */
+class ModeDef(val label: String, val tabs: List<Int>, val subs: List<String>)
+
+val MODES = listOf(
+    ModeDef("PADS", listOf(TAB_PADS), listOf("pads")),
+    ModeDef("SEQ", listOf(TAB_SEQ, TAB_PIANO), listOf("pas", "piano")),
+    ModeDef("SAMPLE", listOf(TAB_PAD), listOf("sample")),
+    ModeDef("MIXER", listOf(TAB_MIX), listOf("mixer")),
+    ModeDef("FX", listOf(TAB_FX, TAB_PADFX, TAB_PUNCH), listOf("master", "pad", "punch")),
+    ModeDef("PROJET", listOf(TAB_KITS), listOf("projet")),
+    ModeDef("SETUP", listOf(TAB_AUDIO), listOf("audio")),
+)
 
 /** Tout l'état de l'appli : pads, effets, séquenceur, kits, réglages audio. Partagé entre l'UI, la manette et le moteur. */
 /** Un périphérique audio proposé dans le menu (info == null : automatique). */
@@ -92,7 +107,56 @@ class SamplerState(private val ctx: Context) {
     var selectedPad by mutableIntStateOf(0)
 
     /** Onglet affiché (voir les constantes TAB_*). */
-    var tab by mutableIntStateOf(TAB_FX)
+    var tab by mutableIntStateOf(TAB_PADS)
+
+    /** Select maintenu = Shift (fonctions secondaires de la manette). */
+    var shiftHeld by mutableStateOf(false)
+
+    private val modeSub = IntArray(MODES.size)
+
+    fun modeIndex(): Int = MODES.indexOfFirst { tab in it.tabs }.coerceAtLeast(0)
+
+    fun goMode(m: Int) {
+        val cur = modeIndex()
+        modeSub[cur] = MODES[cur].tabs.indexOf(tab).coerceAtLeast(0)
+        val n = m.mod(MODES.size)
+        val md = MODES[n]
+        tab = md.tabs[modeSub[n].coerceIn(0, md.tabs.size - 1)]
+        selectedFx = 0
+    }
+
+    fun goTab(t: Int) {
+        val m = MODES.indexOfFirst { t in it.tabs }
+        if (m >= 0) {
+            val cur = modeIndex()
+            modeSub[cur] = MODES[cur].tabs.indexOf(tab).coerceAtLeast(0)
+            modeSub[m] = MODES[m].tabs.indexOf(t)
+        }
+        tab = t
+        selectedFx = 0
+    }
+
+    fun nextSub(d: Int) {
+        val md = MODES[modeIndex()]
+        if (md.tabs.size < 2) return
+        goTab(md.tabs[(md.tabs.indexOf(tab) + d).mod(md.tabs.size)])
+    }
+
+    // ---- mixer : solo (coupe les autres pistes du séquenceur, puis restaure)
+    var soloPad by mutableIntStateOf(-1)
+    private val soloSaved = BooleanArray(16)
+
+    fun toggleSolo(i: Int) {
+        if (soloPad == i) {
+            for (t in 0 until 16) seq.mute[t] = soloSaved[t]
+            soloPad = -1
+        } else {
+            if (soloPad < 0) for (t in 0 until 16) soloSaved[t] = seq.mute[t]
+            soloPad = i
+            for (t in 0 until 16) seq.mute[t] = t != i
+        }
+        seq.touch()
+    }
 
     /** L1 maintenu : la manette joue les pads 9 à 16 (ou les punch-in 9 à 12). */
     var bankHeld by mutableStateOf(false)
@@ -110,6 +174,8 @@ class SamplerState(private val ctx: Context) {
     private var editing = false
 
     var requestPick: (Int) -> Unit = {}
+    var requestExport: (String) -> Unit = {}
+    var requestImport: () -> Unit = {}
     var requestMic: () -> Unit = {}
 
     private fun toast(msg: String) {
@@ -356,7 +422,7 @@ class SamplerState(private val ctx: Context) {
     // ------------------------------------------------------------ manette
 
     fun toggleTab() {
-        tab = (tab + 1) % NTABS
+        goMode(modeIndex() + 1)
     }
 
     /** Start : active/coupe l'effet (onglets FX), charge un sample (onglet Pad), sinon play/stop du séquenceur. */
@@ -388,6 +454,10 @@ class SamplerState(private val ctx: Context) {
             }
             TAB_SEQ, TAB_PIANO -> listOf(seq.bpm, seq.swing, null, null)
             TAB_PUNCH -> listOf(engine.punch.mix, null, null, null)
+            TAB_MIX, TAB_PADS -> {
+                val p = pads[selectedPad]
+                listOf(p.volume, if (tab == TAB_MIX) p.pan else p.pitch, engine.master, if (tab == TAB_PADS) seq.bpm else null)
+            }
             else -> listOf(engine.master, null, null, null)
         }
         for (i in 0 until 4) {
@@ -1028,6 +1098,33 @@ class SamplerState(private val ctx: Context) {
                 toast("Projet « $name » chargé")
             } catch (e: Exception) {
                 toast("Projet illisible")
+            }
+        }.start()
+    }
+
+    fun exportProjectTo(name: String, uri: android.net.Uri) {
+        Thread {
+            try {
+                val ok = synchronized(saveLock) {
+                    ctx.contentResolver.openOutputStream(uri)?.use { storage.exportProjectZip(name, it) } ?: false
+                }
+                toast(if (ok) "Projet « $name » exporté" else "Export impossible")
+            } catch (e: Exception) {
+                toast("Export impossible")
+            }
+        }.start()
+    }
+
+    fun importProjectFrom(uri: android.net.Uri) {
+        Thread {
+            try {
+                val n = ctx.contentResolver.openInputStream(uri)?.use { storage.importProjectZip(it) }
+                if (n == null) toast("Ce fichier n'est pas un projet") else {
+                    refreshLists()
+                    toast("Projet « $n » importé")
+                }
+            } catch (e: Exception) {
+                toast("Import impossible")
             }
         }.start()
     }

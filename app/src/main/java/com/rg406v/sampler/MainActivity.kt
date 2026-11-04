@@ -25,6 +25,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var state: SamplerState
     private var pendingPad = 0
+    private var shiftUsed = false
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -35,6 +36,14 @@ class MainActivity : ComponentActivity() {
             }
             state.loadFromUri(pendingPad, uri)
         }
+    }
+
+    private var exportName = ""
+    private val exporter = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) state.exportProjectTo(exportName, uri)
+    }
+    private val importer = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) state.importProjectFrom(uri)
     }
 
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -82,6 +91,11 @@ class MainActivity : ComponentActivity() {
             picker.launch(arrayOf("audio/*", "application/octet-stream"))
         }
 
+        state.requestExport = { n ->
+            exportName = n
+            exporter.launch("RGGG_$n.zip")
+        }
+        state.requestImport = { importer.launch(arrayOf("application/zip", "application/octet-stream", "application/x-zip-compressed")) }
         state.requestMic = { micPermission.launch(Manifest.permission.RECORD_AUDIO) }
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -103,6 +117,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         handler.removeCallbacks(tick)
         held.clear()
+        state.shiftHeld = false
         state.pause()
         super.onPause()
     }
@@ -114,7 +129,13 @@ class MainActivity : ComponentActivity() {
         val known = slot != null || code in otherKeys
         if (!known) return false
         if (down && repeat) return true
+        if (down && state.shiftHeld && code != KeyEvent.KEYCODE_BUTTON_SELECT) shiftUsed = true
 
+        if (slot != null && state.shiftHeld && down) {
+            // Shift + bouton : sélectionne le pad sans le jouer
+            state.selectedPad = slot + if (state.bankHeld) 8 else 0
+            return true
+        }
         if (slot != null) {
             if (down) {
                 if (!held.containsKey(code)) {
@@ -137,23 +158,39 @@ class MainActivity : ComponentActivity() {
             KeyEvent.KEYCODE_BUTTON_L1 -> state.bankHeld = down
             KeyEvent.KEYCODE_BUTTON_R1 -> state.punchHeld = down
             KeyEvent.KEYCODE_BUTTON_L2 -> if (down) {
+                if (state.shiftHeld) { state.nextSub(-1); return true }
                 when (state.tab) {
+                    TAB_PADS -> state.nextPattern(-1)
+                    TAB_MIX -> state.selectedPad = (state.selectedPad - 1).mod(16)
                     TAB_FX, TAB_PADFX -> state.selectFx(-1)
                     TAB_SEQ, TAB_PIANO -> state.nextPattern(-1)
                 }
             }
             KeyEvent.KEYCODE_BUTTON_R2 -> if (down) {
+                if (state.shiftHeld) { state.nextSub(1); return true }
                 when (state.tab) {
+                    TAB_PADS -> state.nextPattern(1)
+                    TAB_MIX -> state.selectedPad = (state.selectedPad + 1).mod(16)
                     TAB_FX, TAB_PADFX -> state.selectFx(1)
                     TAB_PAD -> state.toggleRecord()
                     TAB_SEQ, TAB_PIANO -> state.nextPattern(1)
                 }
             }
-            KeyEvent.KEYCODE_BUTTON_THUMBL -> if (down) state.moveFx(-1)
-            KeyEvent.KEYCODE_BUTTON_THUMBR -> if (down) state.moveFx(1)
+            KeyEvent.KEYCODE_BUTTON_THUMBL -> if (down) { if (state.shiftHeld) state.goMode(state.modeIndex() - 1) else state.moveFx(-1) }
+            KeyEvent.KEYCODE_BUTTON_THUMBR -> if (down) { if (state.shiftHeld) state.goMode(state.modeIndex() + 1) else state.moveFx(1) }
             // R1 + Start : arrêt d'urgence de tous les sons ; sinon Start = action de l'onglet
-            KeyEvent.KEYCODE_BUTTON_START -> if (down) { if (state.punchHeld) state.panic() else state.startPressed() }
-            KeyEvent.KEYCODE_BUTTON_SELECT -> if (down) state.toggleTab()
+            KeyEvent.KEYCODE_BUTTON_START -> if (down) {
+                if (state.shiftHeld) state.seq.recArmed = !state.seq.recArmed
+                else if (state.punchHeld) state.panic() else state.startPressed()
+            }
+            // Select : appui court = mode suivant ; maintenu = Shift
+            KeyEvent.KEYCODE_BUTTON_SELECT -> {
+                if (down) { state.shiftHeld = true; shiftUsed = false }
+                else {
+                    state.shiftHeld = false
+                    if (!shiftUsed) state.toggleTab()
+                }
+            }
         }
         return true
     }

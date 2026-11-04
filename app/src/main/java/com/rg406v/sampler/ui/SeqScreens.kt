@@ -131,7 +131,6 @@ internal fun SeqPanel(state: SamplerState) {
         verticalArrangement = Arrangement.spacedBy(7.dp),
     ) {
         TransportRow(state)
-        PatternRow(state)
         Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             EditBtn("copier", Modifier.weight(1f)) { state.copyPattern() }
             EditBtn("coller", Modifier.weight(1f)) { state.pastePattern() }
@@ -275,7 +274,6 @@ internal fun PianoPanel(state: SamplerState) {
             Pill("oct −", false, AccFx) { if (state.pianoOct > -2) state.pianoOct -= 1 }
             Pill("oct +", false, AccFx) { if (state.pianoOct < 1) state.pianoOct += 1 }
         }
-        PatternRow(state)
         TrackHeader(state)
 
         val shape = RoundedCornerShape(10.dp)

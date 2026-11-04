@@ -9,6 +9,11 @@ import com.rg406v.sampler.audio.WavIO
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 
 /** Kits (16 pads : samples + réglages) et séquences nommés, stockés dans le dossier privé de l'appli. */
 class Storage(private val ctx: Context) {
@@ -120,6 +125,42 @@ class Storage(private val ctx: Context) {
     fun readProjectState(name: String): String? {
         val f = File(File(projectsRoot, safe(name)), "project.json")
         return if (f.exists()) f.readText() else null
+    }
+
+    /** Écrit le projet dans un zip (un dossier portant le nom du projet). */
+    fun exportProjectZip(name: String, out: OutputStream): Boolean {
+        val dir = File(projectsRoot, safe(name))
+        if (!dir.isDirectory) return false
+        ZipOutputStream(out).use { z ->
+            dir.listFiles()?.filter { it.isFile }?.forEach { f ->
+                z.putNextEntry(ZipEntry(dir.name + "/" + f.name))
+                f.inputStream().use { it.copyTo(z) }
+                z.closeEntry()
+            }
+        }
+        return true
+    }
+
+    /** Lit un zip de projet et le range dans les projets. Renvoie le nom, ou null si le zip n'est pas valide. */
+    fun importProjectZip(input: InputStream): String? {
+        var name: String? = null
+        ZipInputStream(input).use { z ->
+            while (true) {
+                val e = z.nextEntry ?: break
+                if (e.isDirectory) continue
+                val parts = e.name.replace('\\', '/').split('/').filter { it.isNotEmpty() }
+                if (parts.size != 2) continue
+                val proj = safe(parts[0])
+                val fname = parts[1]
+                if (fname.contains("..") || !Regex("[A-Za-z0-9_.-]+").matches(fname)) continue
+                val dir = File(projectsRoot, proj)
+                dir.mkdirs()
+                File(dir, fname).outputStream().use { z.copyTo(it) }
+                name = proj
+            }
+        }
+        val n = name ?: return null
+        return if (File(File(projectsRoot, n), "project.json").exists()) n else null
     }
 
     fun deleteProject(name: String) {
